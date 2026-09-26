@@ -81,6 +81,36 @@
   outline: none;
 }
 
+/* Smooth Select & Dropdown Styling */
+select {
+  appearance: none;
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+  background-image: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 20 20'%3e%3cpath stroke='%23f97316' stroke-linecap='round' stroke-linejoin='round' stroke-width='2' d='M6 8l4 4 4-4'/%3e%3c/svg%3e");
+  background-position: right 0.75rem center;
+  background-repeat: no-repeat;
+  background-size: 1.15em 1.15em;
+  padding-right: 2.5rem !important;
+}
+
+select:focus {
+  border-color: #f97316;
+  box-shadow: 0 0 0 3px rgba(249, 115, 22, 0.2);
+  outline: none;
+}
+
+select option {
+  background-color: #1c120c;
+  color: #f5f5f4;
+  padding: 10px 14px;
+}
+
+.light select option {
+  background-color: #ffffff;
+  color: #1c120c;
+}
+
 /* Print styles for receipt & barcode labels */
 @media print {
   body {

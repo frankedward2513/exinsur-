@@ -148,22 +148,28 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     }
   }, [isDarkMode]);
 
-  // Auth state - default to Customer so customers start safely in shop
+  // Auth state - default to Guest so visitors browse safely until sign in / sign up
+  const GUEST_USER: UserProfile = {
+    uid: 'guest-visitor',
+    email: '',
+    displayName: 'Guest Visitor',
+    role: 'guest',
+    isGuest: true,
+  };
+
   const [currentUser, setCurrentUser] = useState<UserProfile>(() => {
     const saved = localStorage.getItem('exins_user');
     if (saved) {
       try {
-        return JSON.parse(saved);
+        const parsed = JSON.parse(saved);
+        if (parsed && parsed.email && parsed.role && parsed.role !== 'guest') {
+          return parsed;
+        }
       } catch {
         // ignore
       }
     }
-    return {
-      uid: 'customer-default',
-      email: 'customer@exins.shop',
-      displayName: 'Customer',
-      role: 'customer',
-    };
+    return GUEST_USER;
   });
 
   const loginAs = async (email: string, password?: string): Promise<boolean> => {
@@ -180,6 +186,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         email: 'villotafrankedward@gmail.com',
         displayName: 'Frank Edward Villota (Owner)',
         role: 'owner',
+        isGuest: false,
       };
       setCurrentUser(ownerUser);
       localStorage.setItem('exins_user', JSON.stringify(ownerUser));
@@ -196,6 +203,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         email: 'Frankvillota905@gmail.com',
         displayName: 'Frank Villota (Staff)',
         role: 'staff',
+        isGuest: false,
       };
       setCurrentUser(staffUser);
       localStorage.setItem('exins_user', JSON.stringify(staffUser));
@@ -208,6 +216,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       email: normalized,
       displayName: normalized.includes('@') ? normalized.split('@')[0] : 'Customer',
       role: 'customer',
+      isGuest: false,
     };
     setCurrentUser(customerUser);
     localStorage.setItem('exins_user', JSON.stringify(customerUser));
@@ -234,6 +243,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       email: normalized,
       displayName: name.trim() || (normalized.includes('@') ? normalized.split('@')[0] : 'Customer'),
       role: 'customer',
+      isGuest: false,
     };
     setCurrentUser(customerUser);
     localStorage.setItem('exins_user', JSON.stringify(customerUser));
@@ -241,14 +251,8 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   };
 
   const logout = () => {
-    const guestUser: UserProfile = {
-      uid: 'guest-customer',
-      email: 'customer@exins.shop',
-      displayName: 'Customer Guest',
-      role: 'customer',
-    };
-    setCurrentUser(guestUser);
-    localStorage.setItem('exins_user', JSON.stringify(guestUser));
+    setCurrentUser(GUEST_USER);
+    localStorage.removeItem('exins_user');
   };
 
   // State collections - initialized strictly empty as requested: "Don’t add initial data because im the one who will add this, no limitation to add."
@@ -484,6 +488,12 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
   // Cart operations
   const addToCart = (product: Product, quantity = 1) => {
+    if (!currentUser || currentUser.role === 'guest' || currentUser.isGuest || !currentUser.email) {
+      const msg = 'Please sign in or create an account first to add items to your shopping bag.';
+      setCartNotification(msg);
+      return { success: false, message: msg };
+    }
+
     if (product.availableQuantity <= 0) {
       const msg = `Sorry, ${product.name} is currently out of stock.`;
       setCartNotification(msg);
@@ -835,6 +845,10 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   const createOrder = async (
     orderData: Omit<Order, 'id' | 'orderNumber' | 'createdAt' | 'status'>
   ): Promise<Order> => {
+    if (!currentUser || currentUser.role === 'guest' || currentUser.isGuest || !currentUser.email) {
+      throw new Error('Please sign in or create an account first to complete your purchase.');
+    }
+
     const id = `ord_${Date.now()}`;
     const orderNumber = `EX-${new Date().getFullYear().toString().slice(-2)}${Math.floor(
       100000 + Math.random() * 900000

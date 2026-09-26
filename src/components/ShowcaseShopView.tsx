@@ -22,16 +22,19 @@ import {
   Filter,
   CheckCircle2,
   AlertCircle,
+  User,
 } from 'lucide-react';
 
 interface ShowcaseShopViewProps {
   isCartOpen: boolean;
   setIsCartOpen: (open: boolean) => void;
+  onOpenAuth: () => void;
 }
 
 export const ShowcaseShopView: React.FC<ShowcaseShopViewProps> = ({
   isCartOpen,
   setIsCartOpen,
+  onOpenAuth,
 }) => {
   const {
     products,
@@ -51,6 +54,8 @@ export const ShowcaseShopView: React.FC<ShowcaseShopViewProps> = ({
     updateOrderStatus,
     cancelOrder,
   } = useStore();
+
+  const isGuest = currentUser.role === 'guest' || currentUser.isGuest || !currentUser.email;
 
   // Mode: 'browse' | 'orders'
   const [activeMode, setActiveMode] = useState<'browse' | 'orders'>('browse');
@@ -244,6 +249,27 @@ export const ShowcaseShopView: React.FC<ShowcaseShopViewProps> = ({
                   <span>New Orders ({orders.length})</span>
                 </button>
               </>
+            ) : isGuest ? (
+              <>
+                <button
+                  onClick={() => setActiveMode('browse')}
+                  className={`px-5 py-3 rounded-2xl font-bold text-sm shadow-md transition flex items-center gap-2 cursor-pointer ${
+                    activeMode === 'browse'
+                      ? 'bg-gradient-to-r from-orange-600 to-amber-700 text-white shadow-orange-600/30'
+                      : 'bg-stone-900/80 text-stone-300 hover:text-white border border-orange-500/20'
+                  }`}
+                >
+                  <ShoppingBag className="w-4 h-4" />
+                  <span>Browse Clothing</span>
+                </button>
+                <button
+                  onClick={onOpenAuth}
+                  className="px-5 py-3 rounded-2xl font-bold text-sm shadow-md transition flex items-center gap-2 cursor-pointer bg-gradient-to-r from-orange-600 to-amber-700 hover:from-orange-500 hover:to-amber-600 text-white shadow-orange-600/30"
+                >
+                  <User className="w-4 h-4" />
+                  <span>Sign In / Sign Up</span>
+                </button>
+              </>
             ) : (
               <>
                 <button
@@ -290,6 +316,29 @@ export const ShowcaseShopView: React.FC<ShowcaseShopViewProps> = ({
 
       {activeMode === 'browse' ? (
         <>
+          {/* Guest Browsing Friendly Notification Banner */}
+          {isGuest && (
+            <div className="p-4 sm:p-5 rounded-2xl glass-panel border border-orange-500/30 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
+              <div className="flex items-center gap-3">
+                <div className="p-2.5 rounded-xl bg-orange-500/20 text-orange-400 shrink-0">
+                  <User className="w-5 h-5" />
+                </div>
+                <div>
+                  <h4 className="text-sm font-bold text-white">Browsing as Guest</h4>
+                  <p className="text-stone-300 text-xs">
+                    You can browse all outfits, sizes, prices, and links freely. To add items to your shopping bag and make a purchase, please sign in or create an account.
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={onOpenAuth}
+                className="w-full sm:w-auto px-4 py-2.5 rounded-xl bg-gradient-to-r from-orange-600 to-amber-700 hover:from-orange-500 hover:to-amber-600 text-white font-bold text-xs shadow-md transition cursor-pointer whitespace-nowrap"
+              >
+                Sign In / Sign Up
+              </button>
+            </div>
+          )}
+
           {/* Search Bar & Category Filters */}
           <div className="p-4 sm:p-5 rounded-2xl glass-panel space-y-4">
             <div className="flex flex-col md:flex-row gap-3">

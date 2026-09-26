@@ -92,6 +92,7 @@ const MainLayout: React.FC = () => {
             <ShowcaseShopView
               isCartOpen={cartDrawerOpen}
               setIsCartOpen={setCartDrawerOpen}
+              onOpenAuth={() => setAuthModalOpen(true)}
             />
           )}
 

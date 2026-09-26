@@ -153,42 +153,55 @@ export const Navbar: React.FC<NavbarProps> = ({
 
             {/* Role & Account Button */}
             <div className="flex items-center gap-1.5 pl-1">
-              <button
-                onClick={onOpenAuth}
-                className="flex items-center gap-2 p-1.5 sm:px-3 sm:py-2 rounded-xl bg-stone-900/80 border border-orange-500/20 hover:border-orange-500/50 transition cursor-pointer"
-              >
-                <div className="p-1 rounded-lg bg-orange-500/20 text-orange-400">
-                  {currentUser.role === 'owner' ? (
-                    <Shield className="w-4 h-4 text-orange-400" />
-                  ) : currentUser.role === 'staff' ? (
-                    <UserCheck className="w-4 h-4 text-amber-400" />
-                  ) : (
-                    <User className="w-4 h-4 text-stone-300" />
-                  )}
-                </div>
-                <div className="hidden md:block text-left text-xs">
-                  <p className="font-semibold text-stone-200 leading-tight truncate max-w-[120px]">
-                    {currentUser.displayName}
-                  </p>
-                  <p className="text-[10px] text-orange-400 uppercase font-mono font-medium">
-                    {currentUser.role}
-                  </p>
-                </div>
-              </button>
+              {currentUser.role === 'guest' || currentUser.isGuest || !currentUser.email ? (
+                <button
+                  onClick={onOpenAuth}
+                  className="flex items-center gap-1.5 py-2 px-3 sm:px-4 rounded-xl bg-gradient-to-r from-orange-600 to-amber-700 hover:from-orange-500 hover:to-amber-600 text-white font-bold text-xs shadow-md shadow-orange-600/30 transition cursor-pointer"
+                >
+                  <User className="w-4 h-4" />
+                  <span>Sign In / Sign Up</span>
+                </button>
+              ) : (
+                <>
+                  <button
+                    onClick={onOpenAuth}
+                    className="flex items-center gap-2 p-1.5 sm:px-3 sm:py-2 rounded-xl bg-stone-900/80 border border-orange-500/20 hover:border-orange-500/50 transition cursor-pointer"
+                  >
+                    <div className="p-1 rounded-lg bg-orange-500/20 text-orange-400">
+                      {currentUser.role === 'owner' ? (
+                        <Shield className="w-4 h-4 text-orange-400" />
+                      ) : currentUser.role === 'staff' ? (
+                        <UserCheck className="w-4 h-4 text-amber-400" />
+                      ) : (
+                        <User className="w-4 h-4 text-stone-300" />
+                      )}
+                    </div>
+                    <div className="hidden md:block text-left text-xs">
+                      <p className="font-semibold text-stone-200 leading-tight truncate max-w-[120px]">
+                        {currentUser.displayName}
+                      </p>
+                      <p className="text-[10px] text-orange-400 uppercase font-mono font-medium">
+                        {currentUser.role}
+                      </p>
+                    </div>
+                  </button>
 
-              <button
-                onClick={logout}
-                title="Sign Out"
-                className="p-2.5 rounded-xl bg-stone-900/80 border border-orange-500/20 hover:border-red-500/40 text-stone-400 hover:text-red-400 transition cursor-pointer"
-              >
-                <LogOut className="w-4 h-4" />
-              </button>
+                  <button
+                    onClick={logout}
+                    title="Sign Out"
+                    className="hidden sm:flex p-2.5 rounded-xl bg-stone-900/80 border border-orange-500/20 hover:border-red-500/40 text-stone-400 hover:text-red-400 transition cursor-pointer"
+                  >
+                    <LogOut className="w-4 h-4" />
+                  </button>
+                </>
+              )}
             </div>
 
             {/* Mobile Menu Toggle */}
             <button
               onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
               className="lg:hidden p-2.5 rounded-xl bg-stone-900/80 border border-orange-500/20 text-stone-200"
+              aria-label="Toggle Navigation Menu"
             >
               {mobileMenuOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
             </button>
@@ -198,25 +211,55 @@ export const Navbar: React.FC<NavbarProps> = ({
 
       {/* Mobile Menu Dropdown */}
       {mobileMenuOpen && (
-        <div className="lg:hidden border-t border-orange-500/20 bg-stone-950/95 backdrop-blur-2xl px-4 pt-3 pb-6 space-y-2">
-          <div className="p-3 rounded-xl bg-stone-900/60 border border-orange-500/20 mb-3 flex items-center justify-between">
-            <div>
-              <p className="text-xs text-stone-400">Logged in as</p>
-              <p className="text-sm font-semibold text-white">{currentUser.displayName}</p>
-              <span className="text-[10px] uppercase font-mono px-2 py-0.5 rounded bg-orange-500/20 text-orange-400">
-                {currentUser.role}
-              </span>
+        <div className="lg:hidden border-t border-orange-500/20 bg-stone-950/98 backdrop-blur-2xl px-4 pt-3 pb-6 space-y-2 animate-fade-in shadow-2xl">
+          {currentUser.role === 'guest' || currentUser.isGuest || !currentUser.email ? (
+            <div className="p-3.5 rounded-2xl bg-stone-900/80 border border-orange-500/20 mb-3 flex items-center justify-between">
+              <div>
+                <p className="text-xs font-bold text-white">Browsing as Guest</p>
+                <p className="text-[11px] text-stone-400">Sign in to add to bag and make purchase</p>
+              </div>
+              <button
+                onClick={() => {
+                  onOpenAuth();
+                  setMobileMenuOpen(false);
+                }}
+                className="text-xs font-bold px-3.5 py-2 rounded-xl bg-orange-600 hover:bg-orange-500 text-white transition shadow-md whitespace-nowrap"
+              >
+                Sign In / Up
+              </button>
             </div>
-            <button
-              onClick={() => {
-                onOpenAuth();
-                setMobileMenuOpen(false);
-              }}
-              className="text-xs font-semibold px-3 py-1.5 rounded-lg bg-orange-600 text-white"
-            >
-              Switch
-            </button>
-          </div>
+          ) : (
+            <div className="p-3 rounded-2xl bg-stone-900/80 border border-orange-500/20 mb-3 flex items-center justify-between">
+              <div className="min-w-0 pr-2">
+                <p className="text-[11px] text-stone-400">Logged in as</p>
+                <p className="text-sm font-semibold text-white truncate">{currentUser.displayName}</p>
+                <span className="text-[10px] uppercase font-mono px-2 py-0.5 rounded bg-orange-500/20 text-orange-400 inline-block mt-0.5">
+                  {currentUser.role}
+                </span>
+              </div>
+              <div className="flex items-center gap-1.5 shrink-0">
+                <button
+                  onClick={() => {
+                    onOpenAuth();
+                    setMobileMenuOpen(false);
+                  }}
+                  className="text-xs font-semibold px-3 py-1.5 rounded-lg bg-orange-600 hover:bg-orange-500 text-white transition"
+                >
+                  Account
+                </button>
+                <button
+                  onClick={() => {
+                    logout();
+                    setMobileMenuOpen(false);
+                  }}
+                  className="p-1.5 rounded-lg bg-red-950/60 border border-red-500/30 text-red-300 hover:text-white transition"
+                  title="Sign Out"
+                >
+                  <LogOut className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
+          )}
 
           {navItems.map((item) => {
             const Icon = item.icon;

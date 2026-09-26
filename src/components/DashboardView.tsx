@@ -216,11 +216,11 @@ export const DashboardView: React.FC = () => {
 
         {/* Filters */}
         <div className="flex flex-wrap items-center gap-2">
-          <div className="flex items-center gap-1.5 p-1 rounded-xl bg-stone-950/70 border border-orange-500/20 text-xs">
-            <Filter className="w-3.5 h-3.5 text-orange-400 ml-1.5" />
+          <div className="flex items-center gap-1 p-1 rounded-xl bg-stone-950/70 border border-orange-500/20 text-xs overflow-x-auto max-w-full">
+            <Filter className="w-3.5 h-3.5 text-orange-400 ml-1.5 shrink-0" />
             <button
               onClick={() => setDateFilter('all')}
-              className={`px-2.5 py-1 rounded-lg transition font-medium cursor-pointer ${
+              className={`px-2 py-1 rounded-lg transition font-medium cursor-pointer shrink-0 ${
                 dateFilter === 'all' ? 'bg-orange-600 text-white shadow-sm' : 'text-stone-400 hover:text-stone-200'
               }`}
             >
@@ -228,7 +228,7 @@ export const DashboardView: React.FC = () => {
             </button>
             <button
               onClick={() => setDateFilter('today')}
-              className={`px-2.5 py-1 rounded-lg transition font-medium cursor-pointer ${
+              className={`px-2 py-1 rounded-lg transition font-medium cursor-pointer shrink-0 ${
                 dateFilter === 'today' ? 'bg-orange-600 text-white shadow-sm' : 'text-stone-400 hover:text-stone-200'
               }`}
             >
@@ -236,23 +236,23 @@ export const DashboardView: React.FC = () => {
             </button>
             <button
               onClick={() => setDateFilter('last7')}
-              className={`px-2.5 py-1 rounded-lg transition font-medium cursor-pointer ${
+              className={`px-2 py-1 rounded-lg transition font-medium cursor-pointer shrink-0 ${
                 dateFilter === 'last7' ? 'bg-orange-600 text-white shadow-sm' : 'text-stone-400 hover:text-stone-200'
               }`}
             >
-              Last 7 days
+              Last 7d
             </button>
             <button
               onClick={() => setDateFilter('last30')}
-              className={`px-2.5 py-1 rounded-lg transition font-medium cursor-pointer ${
+              className={`px-2 py-1 rounded-lg transition font-medium cursor-pointer shrink-0 ${
                 dateFilter === 'last30' ? 'bg-orange-600 text-white shadow-sm' : 'text-stone-400 hover:text-stone-200'
               }`}
             >
-              Last 30 days
+              Last 30d
             </button>
             <button
               onClick={() => setDateFilter('this_month')}
-              className={`px-2.5 py-1 rounded-lg transition font-medium cursor-pointer ${
+              className={`px-2 py-1 rounded-lg transition font-medium cursor-pointer shrink-0 ${
                 dateFilter === 'this_month' ? 'bg-orange-600 text-white shadow-sm' : 'text-stone-400 hover:text-stone-200'
               }`}
             >
@@ -260,7 +260,7 @@ export const DashboardView: React.FC = () => {
             </button>
             <button
               onClick={() => setDateFilter('custom')}
-              className={`px-2.5 py-1 rounded-lg transition font-medium cursor-pointer ${
+              className={`px-2 py-1 rounded-lg transition font-medium cursor-pointer shrink-0 ${
                 dateFilter === 'custom' ? 'bg-orange-600 text-white shadow-sm' : 'text-stone-400 hover:text-stone-200'
               }`}
             >
@@ -289,89 +289,89 @@ export const DashboardView: React.FC = () => {
         </div>
       </div>
 
-      {/* 6 Key Performance Indicators (KPI Cards) */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4">
-        {/* 1. New Orders */}
-        <div className="p-5 rounded-2xl glass-panel glass-panel-hover relative overflow-hidden group">
-          <div className="flex items-center justify-between mb-3">
-            <span className="text-xs font-semibold uppercase tracking-wider text-stone-400">1. New Orders</span>
-            <div className="p-2 rounded-xl bg-orange-500/20 text-orange-400 group-hover:scale-110 transition">
-              <ShoppingBag className="w-4 h-4" />
+      {/* 6 Key Performance Indicators (KPI Cards - 2 cols on mobile for balanced aesthetic) */}
+      <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-6 gap-2.5 sm:gap-4">
+        {/* New Orders */}
+        <div className="p-3.5 sm:p-5 rounded-2xl glass-panel glass-panel-hover relative overflow-hidden group">
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-[10px] sm:text-xs font-semibold uppercase tracking-wider text-stone-400 truncate">New Orders</span>
+            <div className="p-1.5 sm:p-2 rounded-xl bg-orange-500/20 text-orange-400 group-hover:scale-110 transition">
+              <ShoppingBag className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
             </div>
           </div>
-          <div className="text-2xl font-black text-white">{kpis.newOrders}</div>
-          <p className="text-[11px] text-stone-400 mt-1">Confirmed customer orders</p>
+          <div className="text-xl sm:text-2xl font-black text-white">{kpis.newOrders}</div>
+          <p className="text-[10px] sm:text-[11px] text-stone-400 mt-1 truncate">Customer orders</p>
           <div className="absolute bottom-0 left-0 right-0 h-1 bg-gradient-to-r from-orange-500 to-amber-500 opacity-60" />
         </div>
 
-        {/* 2. Total Sales */}
-        <div className="p-5 rounded-2xl glass-panel glass-panel-hover relative overflow-hidden group">
-          <div className="flex items-center justify-between mb-3">
-            <span className="text-xs font-semibold uppercase tracking-wider text-stone-400">2. Total Sales</span>
-            <div className="p-2 rounded-xl bg-emerald-500/20 text-emerald-400 group-hover:scale-110 transition">
-              <TrendingUp className="w-4 h-4" />
+        {/* Total Sales */}
+        <div className="p-3.5 sm:p-5 rounded-2xl glass-panel glass-panel-hover relative overflow-hidden group">
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-[10px] sm:text-xs font-semibold uppercase tracking-wider text-stone-400 truncate">Total Sales</span>
+            <div className="p-1.5 sm:p-2 rounded-xl bg-emerald-500/20 text-emerald-400 group-hover:scale-110 transition">
+              <TrendingUp className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
             </div>
           </div>
-          <div className="text-2xl font-black text-emerald-400">₱{kpis.totalSales.toLocaleString()}</div>
-          <p className="text-[11px] text-stone-400 mt-1">Revenue inflows (POS & Shop)</p>
+          <div className="text-xl sm:text-2xl font-black text-emerald-400 truncate">₱{kpis.totalSales.toLocaleString()}</div>
+          <p className="text-[10px] sm:text-[11px] text-stone-400 mt-1 truncate">Revenue inflows</p>
           <div className="absolute bottom-0 left-0 right-0 h-1 bg-gradient-to-r from-emerald-500 to-teal-500 opacity-60" />
         </div>
 
-        {/* 3. Total Expenses */}
-        <div className="p-5 rounded-2xl glass-panel glass-panel-hover relative overflow-hidden group">
-          <div className="flex items-center justify-between mb-3">
-            <span className="text-xs font-semibold uppercase tracking-wider text-stone-400">3. Total Expenses</span>
-            <div className="p-2 rounded-xl bg-rose-500/20 text-rose-400 group-hover:scale-110 transition">
-              <TrendingDown className="w-4 h-4" />
+        {/* Total Expenses */}
+        <div className="p-3.5 sm:p-5 rounded-2xl glass-panel glass-panel-hover relative overflow-hidden group">
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-[10px] sm:text-xs font-semibold uppercase tracking-wider text-stone-400 truncate">Total Expenses</span>
+            <div className="p-1.5 sm:p-2 rounded-xl bg-rose-500/20 text-rose-400 group-hover:scale-110 transition">
+              <TrendingDown className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
             </div>
           </div>
-          <div className="text-2xl font-black text-rose-400">₱{kpis.totalExpenses.toLocaleString()}</div>
-          <p className="text-[11px] text-stone-400 mt-1">Operational outflows recorded</p>
+          <div className="text-xl sm:text-2xl font-black text-rose-400 truncate">₱{kpis.totalExpenses.toLocaleString()}</div>
+          <p className="text-[10px] sm:text-[11px] text-stone-400 mt-1 truncate">Operational costs</p>
           <div className="absolute bottom-0 left-0 right-0 h-1 bg-gradient-to-r from-rose-500 to-red-600 opacity-60" />
         </div>
 
-        {/* 4. Gross Profit */}
-        <div className="p-5 rounded-2xl glass-panel glass-panel-hover relative overflow-hidden group">
-          <div className="flex items-center justify-between mb-3">
-            <span className="text-xs font-semibold uppercase tracking-wider text-stone-400">4. Gross Profit</span>
-            <div className="p-2 rounded-xl bg-amber-500/20 text-amber-400 group-hover:scale-110 transition">
-              <Percent className="w-4 h-4" />
+        {/* Gross Profit */}
+        <div className="p-3.5 sm:p-5 rounded-2xl glass-panel glass-panel-hover relative overflow-hidden group">
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-[10px] sm:text-xs font-semibold uppercase tracking-wider text-stone-400 truncate">Gross Profit</span>
+            <div className="p-1.5 sm:p-2 rounded-xl bg-amber-500/20 text-amber-400 group-hover:scale-110 transition">
+              <Percent className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
             </div>
           </div>
-          <div className="text-2xl font-black text-amber-300">₱{kpis.grossProfit.toLocaleString()}</div>
-          <p className="text-[11px] text-stone-400 mt-1">Revenue minus COGS</p>
+          <div className="text-xl sm:text-2xl font-black text-amber-300 truncate">₱{kpis.grossProfit.toLocaleString()}</div>
+          <p className="text-[10px] sm:text-[11px] text-stone-400 mt-1 truncate">Revenue minus COGS</p>
           <div className="absolute bottom-0 left-0 right-0 h-1 bg-gradient-to-r from-amber-500 to-yellow-500 opacity-60" />
         </div>
 
-        {/* 5. Net Profit */}
-        <div className="p-5 rounded-2xl glass-panel glass-panel-hover relative overflow-hidden group">
-          <div className="flex items-center justify-between mb-3">
-            <span className="text-xs font-semibold uppercase tracking-wider text-stone-400">5. Net Profit</span>
-            <div className="p-2 rounded-xl bg-cyan-500/20 text-cyan-400 group-hover:scale-110 transition">
-              <DollarSign className="w-4 h-4" />
+        {/* Net Profit */}
+        <div className="p-3.5 sm:p-5 rounded-2xl glass-panel glass-panel-hover relative overflow-hidden group">
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-[10px] sm:text-xs font-semibold uppercase tracking-wider text-stone-400 truncate">Net Profit</span>
+            <div className="p-1.5 sm:p-2 rounded-xl bg-cyan-500/20 text-cyan-400 group-hover:scale-110 transition">
+              <DollarSign className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
             </div>
           </div>
           <div
-            className={`text-2xl font-black ${
+            className={`text-xl sm:text-2xl font-black truncate ${
               kpis.netProfit >= 0 ? 'text-emerald-400' : 'text-red-400'
             }`}
           >
             ₱{kpis.netProfit.toLocaleString()}
           </div>
-          <p className="text-[11px] text-stone-400 mt-1">Net operational balance</p>
+          <p className="text-[10px] sm:text-[11px] text-stone-400 mt-1 truncate">Net balance</p>
           <div className="absolute bottom-0 left-0 right-0 h-1 bg-gradient-to-r from-cyan-500 to-blue-500 opacity-60" />
         </div>
 
-        {/* 6. Remaining Assets */}
-        <div className="p-5 rounded-2xl glass-panel glass-panel-hover relative overflow-hidden group">
-          <div className="flex items-center justify-between mb-3">
-            <span className="text-xs font-semibold uppercase tracking-wider text-stone-400">6. Remaining Assets</span>
-            <div className="p-2 rounded-xl bg-purple-500/20 text-purple-400 group-hover:scale-110 transition">
-              <Package className="w-4 h-4" />
+        {/* Remaining Assets */}
+        <div className="p-3.5 sm:p-5 rounded-2xl glass-panel glass-panel-hover relative overflow-hidden group">
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-[10px] sm:text-xs font-semibold uppercase tracking-wider text-stone-400 truncate">Remaining Assets</span>
+            <div className="p-1.5 sm:p-2 rounded-xl bg-purple-500/20 text-purple-400 group-hover:scale-110 transition">
+              <Package className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
             </div>
           </div>
-          <div className="text-2xl font-black text-purple-300">₱{kpis.remainingAssets.toLocaleString()}</div>
-          <p className="text-[11px] text-stone-400 mt-1">Total in-stock inventory value</p>
+          <div className="text-xl sm:text-2xl font-black text-purple-300 truncate">₱{kpis.remainingAssets.toLocaleString()}</div>
+          <p className="text-[10px] sm:text-[11px] text-stone-400 mt-1 truncate">Stock asset value</p>
           <div className="absolute bottom-0 left-0 right-0 h-1 bg-gradient-to-r from-purple-500 to-pink-500 opacity-60" />
         </div>
       </div>

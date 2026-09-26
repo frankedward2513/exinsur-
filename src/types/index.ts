@@ -1,10 +1,11 @@
-export type UserRole = 'owner' | 'staff' | 'customer';
+export type UserRole = 'owner' | 'staff' | 'customer' | 'guest';
 
 export interface UserProfile {
   uid: string;
   email: string;
   displayName: string;
   role: UserRole;
+  isGuest?: boolean;
 }
 
 export interface Bale {
