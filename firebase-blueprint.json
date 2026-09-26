@@ -1,0 +1,183 @@
+{
+  "entities": {
+    "Bale": {
+      "title": "Bale",
+      "description": "Inventory bale record",
+      "type": "object",
+      "properties": {
+        "baleCode": { "type": "string", "maxLength": 64 },
+        "baleName": { "type": "string", "maxLength": 128 },
+        "category": { "type": "string", "maxLength": 64 },
+        "supplierId": { "type": "string", "maxLength": 64 },
+        "supplierName": { "type": "string", "maxLength": 128 },
+        "totalPurchasePrice": { "type": "number" },
+        "quantityPurchase": { "type": "number" },
+        "pricePerPiece": { "type": "number" },
+        "description": { "type": "string", "maxLength": 500 },
+        "status": { "type": "string", "enum": ["sealed", "opened", "depleted"] },
+        "totalSalesMade": { "type": "number" },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["baleCode", "baleName", "totalPurchasePrice", "quantityPurchase"]
+    },
+    "Category": {
+      "title": "Category",
+      "description": "Product category",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string", "maxLength": 64 },
+        "description": { "type": "string", "maxLength": 256 },
+        "color": { "type": "string", "maxLength": 32 },
+        "totalInStock": { "type": "number" },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["name"]
+    },
+    "Product": {
+      "title": "Product",
+      "description": "Inventory product item",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string", "maxLength": 128 },
+        "category": { "type": "string", "maxLength": 64 },
+        "baleCode": { "type": "string", "maxLength": 64 },
+        "baleName": { "type": "string", "maxLength": 128 },
+        "availableQuantity": { "type": "number" },
+        "sellingPrice": { "type": "number" },
+        "costPrice": { "type": "number" },
+        "size": { "type": "string", "maxLength": 32 },
+        "imageUrl": { "type": "string" },
+        "productLink": { "type": "string", "maxLength": 512 },
+        "description": { "type": "string", "maxLength": 1000 },
+        "barcode": { "type": "string", "maxLength": 64 },
+        "barcodeStatus": { "type": "string", "enum": ["new", "done"] },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["name", "sellingPrice", "availableQuantity"]
+    },
+    "Supplier": {
+      "title": "Supplier",
+      "description": "Bale supplier",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string", "maxLength": 128 },
+        "contactPerson": { "type": "string", "maxLength": 128 },
+        "email": { "type": "string", "maxLength": 128 },
+        "phone": { "type": "string", "maxLength": 64 },
+        "address": { "type": "string", "maxLength": 256 },
+        "description": { "type": "string", "maxLength": 500 },
+        "totalBalesSourced": { "type": "number" },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["name"]
+    },
+    "ExpenseAccount": {
+      "title": "ExpenseAccount",
+      "description": "Expense budget category",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string", "maxLength": 128 },
+        "monthlyBudget": { "type": "number" },
+        "description": { "type": "string", "maxLength": 500 },
+        "totalSpent": { "type": "number" },
+        "color": { "type": "string", "maxLength": 32 },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["name", "monthlyBudget"]
+    },
+    "Expense": {
+      "title": "Expense",
+      "description": "Recorded expense transaction",
+      "type": "object",
+      "properties": {
+        "accountId": { "type": "string", "maxLength": 64 },
+        "accountName": { "type": "string", "maxLength": 128 },
+        "amount": { "type": "number" },
+        "date": { "type": "string", "maxLength": 32 },
+        "paymentMethod": { "type": "string", "enum": ["cash", "gcash", "bank_transfer", "card"] },
+        "receiptUrl": { "type": "string" },
+        "description": { "type": "string", "maxLength": 500 },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["accountName", "amount", "date", "paymentMethod"]
+    },
+    "Order": {
+      "title": "Order",
+      "description": "Customer showcase or POS order",
+      "type": "object",
+      "properties": {
+        "orderNumber": { "type": "string", "maxLength": 64 },
+        "customerName": { "type": "string", "maxLength": 128 },
+        "contactNumber": { "type": "string", "maxLength": 64 },
+        "email": { "type": "string", "maxLength": 128 },
+        "address": { "type": "string", "maxLength": 256 },
+        "items": { "type": "string" },
+        "totalAmount": { "type": "number" },
+        "paymentType": { "type": "string", "enum": ["pay_now", "down_payment"] },
+        "downPaymentAmount": { "type": "number" },
+        "remainingBalance": { "type": "number" },
+        "receiptUrl": { "type": "string" },
+        "courier": { "type": "string", "maxLength": 64 },
+        "shippingNote": { "type": "string", "maxLength": 256 },
+        "status": { "type": "string", "enum": ["pending", "preparing", "dropped_to_courier", "completed", "cancelled"] },
+        "orderSource": { "type": "string", "enum": ["online", "pos"] },
+        "discount": { "type": "number" },
+        "amountTendered": { "type": "number" },
+        "changeAmount": { "type": "number" },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["orderNumber", "totalAmount", "status"]
+    },
+    "Transaction": {
+      "title": "Transaction",
+      "description": "Financial ledger entry",
+      "type": "object",
+      "properties": {
+        "date": { "type": "string", "maxLength": 32 },
+        "flowType": { "type": "string", "enum": ["inflow", "outflow"] },
+        "category": { "type": "string", "maxLength": 64 },
+        "account": { "type": "string", "maxLength": 128 },
+        "description": { "type": "string", "maxLength": 500 },
+        "paymentMethod": { "type": "string", "enum": ["cash", "gcash", "bank_transfer", "card"] },
+        "inflow": { "type": "number" },
+        "outflow": { "type": "number" },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["date", "flowType", "description", "paymentMethod"]
+    }
+  },
+  "firestore": {
+    "/bales/{baleId}": {
+      "schema": "Bale",
+      "description": "Inventory bales"
+    },
+    "/categories/{categoryId}": {
+      "schema": "Category",
+      "description": "Product categories"
+    },
+    "/products/{productId}": {
+      "schema": "Product",
+      "description": "Products catalog"
+    },
+    "/suppliers/{supplierId}": {
+      "schema": "Supplier",
+      "description": "Suppliers database"
+    },
+    "/expense_accounts/{accountId}": {
+      "schema": "ExpenseAccount",
+      "description": "Budget expense accounts"
+    },
+    "/expenses/{expenseId}": {
+      "schema": "Expense",
+      "description": "Disbursed expense records"
+    },
+    "/orders/{orderId}": {
+      "schema": "Order",
+      "description": "Customer and POS orders"
+    },
+    "/transactions/{transactionId}": {
+      "schema": "Transaction",
+      "description": "Financial ledger transactions"
+    }
+  }
+}

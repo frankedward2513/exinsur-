@@ -1,0 +1,7 @@
+{
+  "name": "EXINS - Inventory Management & Sales Forecasting",
+  "description": "EXINS Jksur+ Novaliches Quezon City inventory management, POS, and sales forecasting web application.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
+

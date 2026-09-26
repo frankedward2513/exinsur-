@@ -1,0 +1,96 @@
+@import "tailwindcss";
+
+@layer base {
+  :root {
+    --bg-overlay: rgba(28, 18, 12, 0.88);
+    --card-bg: rgba(45, 26, 17, 0.65);
+    --card-border: rgba(249, 115, 22, 0.2);
+    --card-hover: rgba(62, 34, 22, 0.8);
+    --accent-orange: #f97316;
+    --accent-brown: #78350f;
+  }
+
+  .light {
+    --bg-overlay: rgba(253, 248, 243, 0.9);
+    --card-bg: rgba(255, 255, 255, 0.75);
+    --card-border: rgba(180, 83, 9, 0.2);
+    --card-hover: rgba(255, 255, 255, 0.95);
+    --accent-orange: #ea580c;
+    --accent-brown: #92400e;
+  }
+
+  /* Custom Glassmorphism Scrollbar */
+  ::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+
+  ::-webkit-scrollbar-track {
+    background: rgba(30, 20, 15, 0.5);
+    backdrop-filter: blur(8px);
+    border-radius: 9999px;
+  }
+
+  .light ::-webkit-scrollbar-track {
+    background: rgba(240, 230, 220, 0.6);
+  }
+
+  ::-webkit-scrollbar-thumb {
+    background: linear-gradient(180deg, #f97316, #9a3412);
+    border-radius: 9999px;
+    border: 2px solid rgba(25, 15, 10, 0.3);
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    background: linear-gradient(180deg, #fb923c, #c2410c);
+  }
+}
+
+/* Glassmorphism utility helpers */
+.glass-panel {
+  background: var(--card-bg);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid var(--card-border);
+  box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.25);
+  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.glass-panel-hover:hover {
+  background: var(--card-hover);
+  border-color: rgba(249, 115, 22, 0.4);
+  box-shadow: 0 12px 36px 0 rgba(234, 88, 12, 0.2);
+  transform: translateY(-2px);
+}
+
+.glass-input {
+  background: rgba(20, 12, 8, 0.5);
+  border: 1px solid rgba(249, 115, 22, 0.25);
+  color: inherit;
+  transition: all 0.2s ease;
+}
+
+.light .glass-input {
+  background: rgba(255, 255, 255, 0.85);
+  border: 1px solid rgba(180, 83, 9, 0.25);
+}
+
+.glass-input:focus {
+  border-color: #f97316;
+  box-shadow: 0 0 0 2px rgba(249, 115, 22, 0.3);
+  outline: none;
+}
+
+/* Print styles for receipt & barcode labels */
+@media print {
+  body {
+    background: white !important;
+    color: black !important;
+  }
+  .no-print {
+    display: none !important;
+  }
+  .print-only {
+    display: block !important;
+  }
+}
