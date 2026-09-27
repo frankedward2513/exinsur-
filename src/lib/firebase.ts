@@ -1,5 +1,5 @@
 import { initializeApp } from 'firebase/app';
-import { getAuth, GoogleAuthProvider } from 'firebase/auth';
+import { getAuth, GoogleAuthProvider, signInAnonymously, signInWithPopup } from 'firebase/auth';
 import { getFirestore, doc, getDocFromServer } from 'firebase/firestore';
 import firebaseConfig from '../../firebase-applet-config.json';
 
@@ -8,6 +8,23 @@ export const app = initializeApp(firebaseConfig);
 export const db = getFirestore(app, firebaseConfig.firestoreDatabaseId);
 export const auth = getAuth(app);
 export const googleProvider = new GoogleAuthProvider();
+export { signInWithPopup };
+
+// Clean undefined values to prevent Firestore rejection
+export function cleanFirestoreData<T extends Record<string, any>>(data: T): T {
+  const cleaned: Record<string, any> = {};
+  for (const [key, value] of Object.entries(data)) {
+    if (value !== undefined) {
+      cleaned[key] = value;
+    }
+  }
+  return cleaned as T;
+}
+
+// Automatically ensure auth session
+signInAnonymously(auth).catch((e) => {
+  console.warn('Anonymous auth initialization note:', e?.message || e);
+});
 
 export enum OperationType {
   CREATE = 'create',

@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { useStore } from '../context/StoreContext';
 import { Product, Order } from '../types';
 import { ReceiptModal } from './ReceiptModal';
@@ -66,14 +66,34 @@ export const ShowcaseShopView: React.FC<ShowcaseShopViewProps> = ({
 
   // Checkout Modal State
   const [isCheckoutOpen, setIsCheckoutOpen] = useState(false);
-  const [customerName, setCustomerName] = useState(currentUser.displayName || '');
-  const [contactNumber, setContactNumber] = useState('');
+  const [customerName, setCustomerName] = useState(
+    currentUser.displayName && currentUser.displayName !== 'Customer' ? currentUser.displayName : ''
+  );
+  const [contactNumber, setContactNumber] = useState(currentUser.phone || '');
   const [email, setEmail] = useState(currentUser.email || '');
-  const [address, setAddress] = useState('');
+  const [address, setAddress] = useState(currentUser.address || '');
   const [paymentType, setPaymentType] = useState<'pay_now' | 'down_payment'>('pay_now');
   const [courier, setCourier] = useState<'lbc' | 'lalamove' | 'jnt'>('jnt');
   const [receiptPhoto, setReceiptPhoto] = useState<string>('');
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  // Sync customer details whenever currentUser updates
+  useEffect(() => {
+    if (currentUser && !currentUser.isGuest) {
+      if (currentUser.displayName && currentUser.displayName !== 'Customer') {
+        setCustomerName(currentUser.displayName);
+      }
+      if (currentUser.phone) {
+        setContactNumber(currentUser.phone);
+      }
+      if (currentUser.email) {
+        setEmail(currentUser.email);
+      }
+      if (currentUser.address) {
+        setAddress(currentUser.address);
+      }
+    }
+  }, [currentUser]);
 
   // Completed Receipt Modal
   const [receiptOrder, setReceiptOrder] = useState<Order | null>(null);

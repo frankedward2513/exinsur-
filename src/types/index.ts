@@ -6,6 +6,10 @@ export interface UserProfile {
   displayName: string;
   role: UserRole;
   isGuest?: boolean;
+  phone?: string;
+  address?: string;
+  provider?: 'email' | 'google';
+  createdAt?: string;
 }
 
 export interface Bale {

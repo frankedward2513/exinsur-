@@ -8,7 +8,16 @@ import {
   onSnapshot,
   query,
 } from 'firebase/firestore';
-import { db, testConnection, handleFirestoreError, OperationType } from '../lib/firebase';
+import {
+  db,
+  testConnection,
+  handleFirestoreError,
+  OperationType,
+  cleanFirestoreData,
+  signInWithPopup,
+  googleProvider,
+  auth,
+} from '../lib/firebase';
 import {
   UserProfile,
   UserRole,
@@ -25,13 +34,48 @@ import {
   ItemStatusLog,
 } from '../types';
 
+export interface SignUpParams {
+  name: string;
+  email: string;
+  password?: string;
+  phone?: string;
+  address?: string;
+  provider?: 'email' | 'google';
+  uid?: string;
+}
+
+export interface GoogleFastResult {
+  needsDetails: boolean;
+  userProfile?: UserProfile;
+  googleUser?: {
+    uid: string;
+    email: string;
+    displayName: string;
+  };
+}
+
 interface StoreContextType {
   // Theme & Auth
   isDarkMode: boolean;
   toggleDarkMode: () => void;
   currentUser: UserProfile;
+  customers: UserProfile[];
   loginAs: (email: string, password?: string) => Promise<boolean>;
-  signupAs: (name: string, email: string, password?: string) => Promise<boolean>;
+  signupAs: (
+    nameOrParams: string | SignUpParams,
+    email?: string,
+    password?: string,
+    phone?: string,
+    address?: string
+  ) => Promise<boolean>;
+  loginWithGoogleFast: () => Promise<GoogleFastResult>;
+  completeGoogleSignUp: (params: {
+    uid: string;
+    displayName: string;
+    email: string;
+    phone: string;
+    address: string;
+  }) => Promise<boolean>;
   logout: () => void;
   
   // Data
@@ -211,19 +255,49 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     }
 
     // 3. All other sign-ins automatically become Customer
-    const customerUser: UserProfile = {
-      uid: `user_${Date.now()}`,
-      email: normalized,
-      displayName: normalized.includes('@') ? normalized.split('@')[0] : 'Customer',
-      role: 'customer',
-      isGuest: false,
-    };
+    const existing = customers.find((c) => c.email.toLowerCase() === normalized);
+    const customerUser: UserProfile = existing
+      ? { ...existing, isGuest: false }
+      : {
+          uid: `cust_${Date.now()}`,
+          email: normalized,
+          displayName: normalized.includes('@') ? normalized.split('@')[0] : 'Customer',
+          role: 'customer',
+          isGuest: false,
+        };
     setCurrentUser(customerUser);
     localStorage.setItem('exins_user', JSON.stringify(customerUser));
     return true;
   };
 
-  const signupAs = async (name: string, email: string, _password?: string): Promise<boolean> => {
+  const signupAs = async (
+    nameOrParams: string | SignUpParams,
+    emailArg?: string,
+    _passwordArg?: string,
+    phoneArg?: string,
+    addressArg?: string
+  ): Promise<boolean> => {
+    let name = '';
+    let email = '';
+    let phone = '';
+    let address = '';
+    let provider: 'email' | 'google' = 'email';
+    let uid = '';
+
+    if (typeof nameOrParams === 'object') {
+      name = nameOrParams.name;
+      email = nameOrParams.email;
+      phone = nameOrParams.phone || '';
+      address = nameOrParams.address || '';
+      provider = nameOrParams.provider || 'email';
+      uid = nameOrParams.uid || '';
+    } else {
+      name = nameOrParams;
+      email = emailArg || '';
+      phone = phoneArg || '';
+      address = addressArg || '';
+    }
+
     const normalized = email.trim().toLowerCase();
 
     // Prevent customers from attempting to sign up as owner or staff
@@ -237,17 +311,113 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       );
     }
 
-    // All signups automatically register strictly as Customer
+    const customerUid = uid || `cust_${Date.now()}`;
     const customerUser: UserProfile = {
-      uid: `user_${Date.now()}`,
+      uid: customerUid,
       email: normalized,
       displayName: name.trim() || (normalized.includes('@') ? normalized.split('@')[0] : 'Customer'),
+      phone: phone.trim(),
+      address: address.trim(),
       role: 'customer',
+      provider,
       isGuest: false,
+      createdAt: new Date().toISOString(),
     };
+
     setCurrentUser(customerUser);
     localStorage.setItem('exins_user', JSON.stringify(customerUser));
+    setCustomers((prev) => [customerUser, ...prev.filter((c) => c.uid !== customerUid)]);
+
+    // Save to Firestore customers and users collection persistently
+    try {
+      await setDoc(doc(db, 'customers', customerUid), cleanFirestoreData(customerUser));
+      await setDoc(doc(db, 'users', customerUid), cleanFirestoreData(customerUser));
+    } catch (err) {
+      handleFirestoreError(err, OperationType.CREATE, `customers/${customerUid}`);
+    }
+
     return true;
+  };
+
+  const loginWithGoogleFast = async (): Promise<GoogleFastResult> => {
+    try {
+      const res = await signInWithPopup(auth, googleProvider);
+      const gUser = res.user;
+      const email = (gUser.email || '').trim().toLowerCase();
+      const displayName = gUser.displayName || 'Customer';
+      const uid = gUser.uid;
+
+      // Check if this email is owner or staff
+      if (email === 'villotafrankedward@gmail.com') {
+        const ownerUser: UserProfile = {
+          uid: 'owner-frank',
+          email: 'villotafrankedward@gmail.com',
+          displayName: displayName || 'Frank Edward Villota (Owner)',
+          role: 'owner',
+          isGuest: false,
+          provider: 'google',
+        };
+        setCurrentUser(ownerUser);
+        localStorage.setItem('exins_user', JSON.stringify(ownerUser));
+        return { needsDetails: false, userProfile: ownerUser };
+      }
+
+      if (email === 'frankvillota905@gmail.com' || email === 'frankvillota905@gmail.om') {
+        const staffUser: UserProfile = {
+          uid: 'staff-frank',
+          email: 'Frankvillota905@gmail.com',
+          displayName: displayName || 'Frank Villota (Staff)',
+          role: 'staff',
+          isGuest: false,
+          provider: 'google',
+        };
+        setCurrentUser(staffUser);
+        localStorage.setItem('exins_user', JSON.stringify(staffUser));
+        return { needsDetails: false, userProfile: staffUser };
+      }
+
+      // Check if existing customer profile already has phone and address
+      const existing = customers.find((c) => c.email.toLowerCase() === email || c.uid === uid);
+      if (existing && existing.phone && existing.address) {
+        const fullCustomer: UserProfile = {
+          ...existing,
+          isGuest: false,
+        };
+        setCurrentUser(fullCustomer);
+        localStorage.setItem('exins_user', JSON.stringify(fullCustomer));
+        return { needsDetails: false, userProfile: fullCustomer };
+      }
+
+      // If missing phone or address, prompt for full name, phone and delivery address
+      return {
+        needsDetails: true,
+        googleUser: {
+          uid,
+          email,
+          displayName: existing?.displayName || displayName,
+        },
+      };
+    } catch (err: any) {
+      console.error('Google Sign-In Error:', err);
+      throw new Error(err?.message || 'Google Sign-In failed. Please try again.');
+    }
+  };
+
+  const completeGoogleSignUp = async (params: {
+    uid: string;
+    displayName: string;
+    email: string;
+    phone: string;
+    address: string;
+  }): Promise<boolean> => {
+    return signupAs({
+      uid: params.uid,
+      name: params.displayName,
+      email: params.email,
+      phone: params.phone,
+      address: params.address,
+      provider: 'google',
+    });
   };
 
   const logout = () => {
@@ -256,6 +426,10 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   };
 
   // State collections - initialized strictly empty as requested: "Don’t add initial data because im the one who will add this, no limitation to add."
+  const [customers, setCustomers] = useState<UserProfile[]>(() => {
+    const saved = localStorage.getItem('exins_customers');
+    return saved ? JSON.parse(saved) : [];
+  });
   const [bales, setBales] = useState<Bale[]>(() => {
     const saved = localStorage.getItem('exins_bales');
     return saved ? JSON.parse(saved) : [];
@@ -312,6 +486,9 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
   // Sync state to localStorage cache
   useEffect(() => {
+    localStorage.setItem('exins_customers', JSON.stringify(customers));
+  }, [customers]);
+  useEffect(() => {
     localStorage.setItem('exins_bales', JSON.stringify(bales));
   }, [bales]);
   useEffect(() => {
@@ -362,10 +539,28 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     const unsubCategories = onSnapshot(
       query(collection(db, 'categories')),
       (snapshot) => {
-        if (!snapshot.empty) {
-          const loaded: Category[] = [];
-          snapshot.forEach((d) => loaded.push({ ...(d.data() as Category), id: d.id }));
+        const loaded: Category[] = [];
+        snapshot.forEach((d) => loaded.push({ ...(d.data() as Category), id: d.id }));
+        if (loaded.length > 0) {
           setCategories(loaded);
+        } else {
+          // If Firestore is empty, check if we have local categories to persist into Firestore
+          const localSaved = localStorage.getItem('exins_categories');
+          if (localSaved) {
+            try {
+              const localCats: Category[] = JSON.parse(localSaved);
+              if (localCats.length > 0) {
+                setCategories(localCats);
+                localCats.forEach((c) => {
+                  setDoc(doc(db, 'categories', c.id), cleanFirestoreData(c)).catch(console.warn);
+                });
+                return;
+              }
+            } catch {
+              // ignore
+            }
+          }
+          setCategories([]);
         }
       },
       (error) => handleFirestoreError(error, OperationType.LIST, 'categories')
@@ -374,10 +569,28 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     const unsubProducts = onSnapshot(
       query(collection(db, 'products')),
       (snapshot) => {
-        if (!snapshot.empty) {
-          const loaded: Product[] = [];
-          snapshot.forEach((d) => loaded.push({ ...(d.data() as Product), id: d.id }));
+        const loaded: Product[] = [];
+        snapshot.forEach((d) => loaded.push({ ...(d.data() as Product), id: d.id }));
+        if (loaded.length > 0) {
           setProducts(loaded);
+        } else {
+          // If Firestore is empty, check if we have local products to persist into Firestore
+          const localSaved = localStorage.getItem('exins_products');
+          if (localSaved) {
+            try {
+              const localProds: Product[] = JSON.parse(localSaved);
+              if (localProds.length > 0) {
+                setProducts(localProds);
+                localProds.forEach((p) => {
+                  setDoc(doc(db, 'products', p.id), cleanFirestoreData(p)).catch(console.warn);
+                });
+                return;
+              }
+            } catch {
+              // ignore
+            }
+          }
+          setProducts([]);
         }
       },
       (error) => handleFirestoreError(error, OperationType.LIST, 'products')
@@ -443,6 +656,35 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       (error) => handleFirestoreError(error, OperationType.LIST, 'transactions')
     );
 
+    const unsubCustomers = onSnapshot(
+      query(collection(db, 'customers')),
+      (snapshot) => {
+        const loaded: UserProfile[] = [];
+        snapshot.forEach((d) => loaded.push({ ...(d.data() as UserProfile), uid: d.id }));
+        if (loaded.length > 0) {
+          setCustomers(loaded);
+        } else {
+          // If Firestore is empty, check if we have local customers to persist into Firestore
+          const localSaved = localStorage.getItem('exins_customers');
+          if (localSaved) {
+            try {
+              const localCusts: UserProfile[] = JSON.parse(localSaved);
+              if (localCusts.length > 0) {
+                setCustomers(localCusts);
+                localCusts.forEach((c) => {
+                  setDoc(doc(db, 'customers', c.uid), cleanFirestoreData(c)).catch(console.warn);
+                });
+                return;
+              }
+            } catch {
+              // ignore
+            }
+          }
+        }
+      },
+      (error) => handleFirestoreError(error, OperationType.LIST, 'customers')
+    );
+
     return () => {
       unsubBales();
       unsubCategories();
@@ -452,6 +694,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       unsubExpenses();
       unsubOrders();
       unsubTransactions();
+      unsubCustomers();
     };
   }, []);
 
@@ -631,7 +874,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     setCategories((prev) => [newCat, ...prev]);
 
     try {
-      await setDoc(doc(db, 'categories', id), newCat);
+      await setDoc(doc(db, 'categories', id), cleanFirestoreData(newCat));
     } catch (err) {
       handleFirestoreError(err, OperationType.CREATE, `categories/${id}`);
     }
@@ -640,7 +883,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   const updateCategory = async (id: string, updates: Partial<Category>) => {
     setCategories((prev) => prev.map((c) => (c.id === id ? { ...c, ...updates } : c)));
     try {
-      await updateDoc(doc(db, 'categories', id), updates);
+      await updateDoc(doc(db, 'categories', id), cleanFirestoreData(updates));
     } catch (err) {
       handleFirestoreError(err, OperationType.UPDATE, `categories/${id}`);
     }
@@ -666,7 +909,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     setProducts((prev) => [newProd, ...prev]);
 
     try {
-      await setDoc(doc(db, 'products', id), newProd);
+      await setDoc(doc(db, 'products', id), cleanFirestoreData(newProd));
     } catch (err) {
       handleFirestoreError(err, OperationType.CREATE, `products/${id}`);
     }
@@ -675,7 +918,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   const updateProduct = async (id: string, updates: Partial<Product>) => {
     setProducts((prev) => prev.map((p) => (p.id === id ? { ...p, ...updates } : p)));
     try {
-      await updateDoc(doc(db, 'products', id), updates);
+      await updateDoc(doc(db, 'products', id), cleanFirestoreData(updates));
     } catch (err) {
       handleFirestoreError(err, OperationType.UPDATE, `products/${id}`);
     }
@@ -1145,8 +1388,11 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         isDarkMode,
         toggleDarkMode,
         currentUser,
+        customers,
         loginAs,
         signupAs,
+        loginWithGoogleFast,
+        completeGoogleSignUp,
         logout,
         bales,
         categories,

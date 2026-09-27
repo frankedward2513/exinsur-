@@ -144,6 +144,22 @@
         "createdAt": { "type": "string" }
       },
       "required": ["date", "flowType", "description", "paymentMethod"]
+    },
+    "Customer": {
+      "title": "Customer",
+      "description": "Registered customer profile",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "maxLength": 128 },
+        "displayName": { "type": "string", "maxLength": 128 },
+        "email": { "type": "string", "maxLength": 128 },
+        "phone": { "type": "string", "maxLength": 64 },
+        "address": { "type": "string", "maxLength": 256 },
+        "role": { "type": "string", "enum": ["customer", "staff", "owner"] },
+        "provider": { "type": "string", "enum": ["email", "google"] },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["uid", "email", "displayName", "role"]
     }
   },
   "firestore": {
@@ -178,6 +194,10 @@
     "/transactions/{transactionId}": {
       "schema": "Transaction",
       "description": "Financial ledger transactions"
+    },
+    "/customers/{customerId}": {
+      "schema": "Customer",
+      "description": "Registered customer accounts"
     }
   }
 }

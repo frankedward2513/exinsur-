@@ -96,9 +96,6 @@ const MainLayout: React.FC = () => {
             />
           )}
 
-          {activeTab === 'barcode' &&
-            (currentUser.role === 'owner' || currentUser.role === 'staff') && <BarcodeView />}
-
           {activeTab === 'pos' &&
             (currentUser.role === 'owner' || currentUser.role === 'staff') && <PosView />}
         </main>

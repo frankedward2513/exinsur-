@@ -1467,7 +1467,9 @@ export const InventoryManagementView: React.FC = () => {
                       </div>
 
                       <div className="flex items-center justify-between pt-2 border-t border-stone-800/80">
-                        <span className="text-[10px] font-mono text-stone-500">{p.barcode}</span>
+                        <span className="text-[10px] font-mono text-stone-300 bg-stone-900/90 px-2 py-0.5 rounded border border-stone-800">
+                          Code: {p.barcode}
+                        </span>
                         <div className="flex items-center gap-2">
                           <button
                             onClick={() => startEditProduct(p)}
@@ -1501,7 +1503,7 @@ export const InventoryManagementView: React.FC = () => {
                         <th className="py-3 px-3 text-right">Selling Price</th>
                         <th className="py-3 px-3 text-right">Cost Price</th>
                         <th className="py-3 px-3 text-center">Stock Quantity</th>
-                        <th className="py-3 px-3 text-center">Barcode</th>
+                        <th className="py-3 px-3 text-center">Item Code</th>
                         <th className="py-3 px-3 text-center">Actions</th>
                       </tr>
                     </thead>
@@ -1546,7 +1548,7 @@ export const InventoryManagementView: React.FC = () => {
                               {p.availableQuantity} pcs
                             </span>
                           </td>
-                          <td className="py-3 px-3 text-center font-mono text-[11px] text-stone-400">
+                          <td className="py-3 px-3 text-center font-mono text-[11px] text-orange-400 font-bold">
                             {p.barcode}
                           </td>
                           <td className="py-3 px-3 text-center">

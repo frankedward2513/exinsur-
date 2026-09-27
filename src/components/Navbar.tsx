@@ -55,7 +55,6 @@ export const Navbar: React.FC<NavbarProps> = ({
         { id: 'forecasting' as ActiveTab, label: 'Forecasting', icon: TrendingUp },
         { id: 'ai_chat' as ActiveTab, label: 'Hi Im your AI Exins', icon: Sparkles },
         { id: 'showcase' as ActiveTab, label: 'Showcase Shop', icon: ShoppingBag },
-        { id: 'barcode' as ActiveTab, label: 'Barcode', icon: Barcode },
         { id: 'pos' as ActiveTab, label: 'POS', icon: Store },
       ];
     } else if (currentUser.role === 'staff') {
@@ -63,7 +62,6 @@ export const Navbar: React.FC<NavbarProps> = ({
         { id: 'pos' as ActiveTab, label: 'POS', icon: Store },
         { id: 'inventory' as ActiveTab, label: 'Inventory Management', icon: Boxes },
         { id: 'showcase' as ActiveTab, label: 'Showcase Shop', icon: ShoppingBag },
-        { id: 'barcode' as ActiveTab, label: 'Barcode', icon: Barcode },
       ];
     } else {
       // Customer
