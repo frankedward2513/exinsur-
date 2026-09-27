@@ -2,6 +2,7 @@ import React, { useState, useMemo, useEffect } from 'react';
 import { useStore } from '../context/StoreContext';
 import { Product, Order } from '../types';
 import { ReceiptModal } from './ReceiptModal';
+import { ConfirmDeleteModal } from './ConfirmDeleteModal';
 import {
   Search,
   ShoppingBag,
@@ -28,7 +29,7 @@ import {
 interface ShowcaseShopViewProps {
   isCartOpen: boolean;
   setIsCartOpen: (open: boolean) => void;
-  onOpenAuth: () => void;
+  onOpenAuth: (mode?: 'login' | 'signup') => void;
 }
 
 export const ShowcaseShopView: React.FC<ShowcaseShopViewProps> = ({
@@ -97,6 +98,22 @@ export const ShowcaseShopView: React.FC<ShowcaseShopViewProps> = ({
 
   // Completed Receipt Modal
   const [receiptOrder, setReceiptOrder] = useState<Order | null>(null);
+
+  // Cancellation confirmation state to prevent accidental order cancellations
+  const [cancelOrderTarget, setCancelOrderTarget] = useState<Order | null>(null);
+  const [isCancellingOrder, setIsCancellingOrder] = useState(false);
+  const [cartItemToDelete, setCartItemToDelete] = useState<{ productId: string; name: string } | null>(null);
+
+  const handleConfirmCancelOrder = async () => {
+    if (!cancelOrderTarget) return;
+    setIsCancellingOrder(true);
+    try {
+      await cancelOrder(cancelOrderTarget.id);
+      setCancelOrderTarget(null);
+    } finally {
+      setIsCancellingOrder(false);
+    }
+  };
 
   // Filtered Products
   const filteredProducts = useMemo(() => {
@@ -283,7 +300,7 @@ export const ShowcaseShopView: React.FC<ShowcaseShopViewProps> = ({
                   <span>Browse Clothing</span>
                 </button>
                 <button
-                  onClick={onOpenAuth}
+                  onClick={() => onOpenAuth('signup')}
                   className="px-5 py-3 rounded-2xl font-bold text-sm shadow-md transition flex items-center gap-2 cursor-pointer bg-gradient-to-r from-orange-600 to-amber-700 hover:from-orange-500 hover:to-amber-600 text-white shadow-orange-600/30"
                 >
                   <User className="w-4 h-4" />
@@ -350,12 +367,22 @@ export const ShowcaseShopView: React.FC<ShowcaseShopViewProps> = ({
                   </p>
                 </div>
               </div>
-              <button
-                onClick={onOpenAuth}
-                className="w-full sm:w-auto px-4 py-2.5 rounded-xl bg-gradient-to-r from-orange-600 to-amber-700 hover:from-orange-500 hover:to-amber-600 text-white font-bold text-xs shadow-md transition cursor-pointer whitespace-nowrap"
-              >
-                Sign In / Sign Up
-              </button>
+              <div className="flex items-center gap-2 w-full sm:w-auto">
+                <button
+                  type="button"
+                  onClick={() => onOpenAuth('login')}
+                  className="flex-1 sm:flex-initial px-4 py-2.5 rounded-xl border border-orange-500/40 bg-stone-900/90 hover:bg-stone-800 text-stone-200 hover:text-white font-semibold text-xs transition cursor-pointer whitespace-nowrap text-center"
+                >
+                  Sign In
+                </button>
+                <button
+                  type="button"
+                  onClick={() => onOpenAuth('signup')}
+                  className="flex-1 sm:flex-initial px-4 py-2.5 rounded-xl bg-gradient-to-r from-orange-600 to-amber-700 hover:from-orange-500 hover:to-amber-600 text-white font-bold text-xs shadow-md transition cursor-pointer whitespace-nowrap text-center"
+                >
+                  Create Account
+                </button>
+              </div>
             </div>
           )}
 
@@ -660,7 +687,8 @@ export const ShowcaseShopView: React.FC<ShowcaseShopViewProps> = ({
                       <div className="flex items-center gap-2">
                         {canCancel && (
                           <button
-                            onClick={() => cancelOrder(ord.id)}
+                            type="button"
+                            onClick={() => setCancelOrderTarget(ord)}
                             className="px-3 py-1.5 rounded-xl bg-rose-950/80 border border-rose-500/30 text-rose-300 hover:bg-rose-900 text-xs font-semibold flex items-center gap-1 transition cursor-pointer"
                           >
                             <XCircle className="w-3.5 h-3.5" />
@@ -812,8 +840,8 @@ export const ShowcaseShopView: React.FC<ShowcaseShopViewProps> = ({
                     {/* Delete button */}
                     <button
                       type="button"
-                      onClick={() => removeFromCart(item.productId)}
-                      className="p-2 rounded-xl text-stone-500 hover:text-red-400 hover:bg-red-500/10 transition"
+                      onClick={() => setCartItemToDelete({ productId: item.productId, name: item.name })}
+                      className="p-2 rounded-xl text-stone-500 hover:text-red-400 hover:bg-red-500/10 transition cursor-pointer"
                       title="Remove from bag"
                     >
                       <Trash2 className="w-4 h-4" />
@@ -1053,6 +1081,46 @@ export const ShowcaseShopView: React.FC<ShowcaseShopViewProps> = ({
       {receiptOrder && (
         <ReceiptModal order={receiptOrder} onClose={() => setReceiptOrder(null)} />
       )}
+
+      {/* Order Cancellation Confirmation Modal */}
+      <ConfirmDeleteModal
+        isOpen={Boolean(cancelOrderTarget)}
+        onClose={() => setCancelOrderTarget(null)}
+        onConfirm={handleConfirmCancelOrder}
+        title={`Cancel Order #${cancelOrderTarget?.orderNumber}?`}
+        message="Are you sure you want to cancel this order? If you clicked this by accident, click Cancel to keep your order active."
+        itemName={`Order #${cancelOrderTarget?.orderNumber}`}
+        itemDetails={
+          cancelOrderTarget
+            ? [
+                { label: 'Customer', value: cancelOrderTarget.customerName },
+                { label: 'Total Amount', value: `₱${cancelOrderTarget.totalAmount.toLocaleString()}` },
+                { label: 'Courier', value: cancelOrderTarget.courier ? cancelOrderTarget.courier.toUpperCase() : 'N/A' },
+                { label: 'Payment', value: (cancelOrderTarget.paymentMethod || cancelOrderTarget.paymentType || 'N/A').toUpperCase() },
+              ]
+            : undefined
+        }
+        confirmText="Yes, Cancel Order"
+        cancelText="Keep Order"
+        isLoading={isCancellingOrder}
+      />
+
+      {/* Cart Item Removal Confirmation Modal */}
+      <ConfirmDeleteModal
+        isOpen={Boolean(cartItemToDelete)}
+        onClose={() => setCartItemToDelete(null)}
+        onConfirm={() => {
+          if (cartItemToDelete) {
+            removeFromCart(cartItemToDelete.productId);
+            setCartItemToDelete(null);
+          }
+        }}
+        title="Remove Item from Shopping Bag?"
+        message="Are you sure you want to remove this item from your shopping bag? If you clicked this by accident, click Cancel to keep it."
+        itemName={cartItemToDelete?.name}
+        confirmText="Yes, Remove Item"
+        cancelText="Cancel"
+      />
     </div>
   );
 };

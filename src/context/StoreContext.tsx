@@ -685,6 +685,18 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       (error) => handleFirestoreError(error, OperationType.LIST, 'customers')
     );
 
+    const unsubItemLogs = onSnapshot(
+      query(collection(db, 'item_logs')),
+      (snapshot) => {
+        const loaded: ItemStatusLog[] = [];
+        snapshot.forEach((d) => loaded.push({ ...(d.data() as ItemStatusLog), id: d.id }));
+        if (loaded.length > 0) {
+          setItemStatusLogs(loaded);
+        }
+      },
+      (error) => handleFirestoreError(error, OperationType.LIST, 'item_logs')
+    );
+
     return () => {
       unsubBales();
       unsubCategories();
@@ -695,6 +707,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       unsubOrders();
       unsubTransactions();
       unsubCustomers();
+      unsubItemLogs();
     };
   }, []);
 
@@ -1361,6 +1374,12 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     };
 
     setItemStatusLogs((prev) => [newLog, ...prev]);
+
+    try {
+      await setDoc(doc(db, 'item_logs', id), cleanFirestoreData(newLog));
+    } catch (err) {
+      handleFirestoreError(err, OperationType.CREATE, `item_logs/${id}`);
+    }
 
     // If stock adjustment is requested
     if (params.adjustStock) {

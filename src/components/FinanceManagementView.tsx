@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { useStore } from '../context/StoreContext';
 import { ExpenseAccount, Expense, Transaction } from '../types';
 import {
@@ -17,13 +17,34 @@ import {
   Trash2,
   AlertTriangle,
   CheckCircle,
+  Store,
+  ShoppingBag,
+  Layers,
+  RotateCcw,
+  Sparkles,
+  ArrowRight,
+  X,
+  Boxes,
+  Check,
+  ArrowUpDown,
+  Tag,
+  ChevronDown,
+  CreditCard,
+  ArrowUpRight,
+  ArrowDownRight,
 } from 'lucide-react';
+import { LogItemStatusModal } from './LogItemStatusModal';
+import { ConfirmDeleteModal } from './ConfirmDeleteModal';
 
 export const FinanceManagementView: React.FC = () => {
   const {
     expenseAccounts,
     expenses,
     transactions,
+    orders,
+    itemStatusLogs,
+    products,
+    categories,
     addExpenseAccount,
     updateExpenseAccount,
     deleteExpenseAccount,
@@ -34,6 +55,32 @@ export const FinanceManagementView: React.FC = () => {
 
   // 3 Tabs: 'accounts' | 'record' | 'history'
   const [activeTab, setActiveTab] = useState<'accounts' | 'record' | 'history'>('accounts');
+
+  // Deletion confirmation state to prevent accidental deletes
+  const [deleteTarget, setDeleteTarget] = useState<{
+    type: 'transaction' | 'expense_account';
+    id: string;
+    title: string;
+    message: string;
+    itemName: string;
+    details?: { label: string; value: string | number }[];
+  } | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
+
+  const handleConfirmDelete = async () => {
+    if (!deleteTarget) return;
+    setIsDeleting(true);
+    try {
+      if (deleteTarget.type === 'transaction') {
+        await deleteTransaction(deleteTarget.id);
+      } else if (deleteTarget.type === 'expense_account') {
+        await deleteExpenseAccount(deleteTarget.id);
+      }
+      setDeleteTarget(null);
+    } finally {
+      setIsDeleting(false);
+    }
+  };
 
   // ===================== 1. EXPENSE ACCOUNTS STATE =====================
   const [accountName, setAccountName] = useState('');
@@ -123,30 +170,317 @@ export const FinanceManagementView: React.FC = () => {
   // ===================== 3. TRANSACTION HISTORY STATE =====================
   const [historySearch, setHistorySearch] = useState('');
   const [flowFilter, setFlowFilter] = useState<'all' | 'inflow' | 'outflow'>('all');
+  const [channelFilter, setChannelFilter] = useState<'all' | 'pos' | 'online' | 'disbursement'>('all');
   const [paymentFilter, setPaymentFilter] = useState<string>('all');
   const [datePreset, setDatePreset] = useState<'all' | 'today' | 'last7' | 'this_month' | 'custom'>('all');
   const [customStart, setCustomStart] = useState('');
   const [customEnd, setCustomEnd] = useState('');
+  const [isLogModalOpen, setIsLogModalOpen] = useState(false);
 
+  // Product Filter State (to easily filter transactions by product code or name without scrolling)
+  const [selectedProductFilterId, setSelectedProductFilterId] = useState<string | null>(null);
+  const [isProductFilterModalOpen, setIsProductFilterModalOpen] = useState(false);
+  const [productModalSearch, setProductModalSearch] = useState('');
+  const [productModalCategory, setProductModalCategory] = useState('all');
+
+  // 4 Dropdown state for Transaction History (Channel, Flow, Payment Method, Date)
+  const [openDropdown, setOpenDropdown] = useState<'channel' | 'flow' | 'payment' | 'date' | null>(null);
+  const dropdownRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
+        setOpenDropdown(null);
+      }
+    };
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setOpenDropdown(null);
+      }
+    };
+
+    document.addEventListener('mousedown', handleClickOutside);
+    document.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, []);
+
+  const getChannelLabel = () => {
+    if (channelFilter === 'all') return 'Channel: All';
+    if (channelFilter === 'pos') return 'Channel: POS';
+    if (channelFilter === 'online') return 'Channel: Online';
+    if (channelFilter === 'disbursement') return 'Channel: Disbursements';
+    return 'Channel';
+  };
+
+  const getFlowLabel = () => {
+    if (flowFilter === 'all') return 'Flow: All';
+    if (flowFilter === 'inflow') return 'Flow: Inflow';
+    if (flowFilter === 'outflow') return 'Flow: Outflow';
+    return 'Flow';
+  };
+
+  const getPaymentLabel = () => {
+    if (paymentFilter === 'all') return 'Payment: All';
+    if (paymentFilter === 'cash') return 'Payment: Cash';
+    if (paymentFilter === 'gcash') return 'Payment: GCash';
+    if (paymentFilter === 'bank_transfer') return 'Payment: Bank Transfer';
+    if (paymentFilter === 'card') return 'Payment: Card';
+    return `Payment: ${paymentFilter}`;
+  };
+
+  const getDateLabel = () => {
+    if (datePreset === 'all') return 'Date: All Time';
+    if (datePreset === 'today') return 'Date: Today';
+    if (datePreset === 'last7') return 'Date: Last 7 Days';
+    if (datePreset === 'this_month') return 'Date: This Month';
+    if (datePreset === 'custom') {
+      if (customStart && customEnd) return `Date: ${customStart} → ${customEnd}`;
+      if (customStart) return `Date: From ${customStart}`;
+      if (customEnd) return `Date: Up to ${customEnd}`;
+      return 'Date: Custom Range';
+    }
+    return 'Date';
+  };
+
+  const isAnyFilterActive =
+    flowFilter !== 'all' ||
+    paymentFilter !== 'all' ||
+    datePreset !== 'all' ||
+    channelFilter !== 'all' ||
+    selectedProductFilterId !== null ||
+    historySearch.trim() !== '' ||
+    customStart !== '' ||
+    customEnd !== '';
+
+  const handleResetFilters = () => {
+    setFlowFilter('all');
+    setPaymentFilter('all');
+    setDatePreset('all');
+    setChannelFilter('all');
+    setSelectedProductFilterId(null);
+    setHistorySearch('');
+    setCustomStart('');
+    setCustomEnd('');
+    setOpenDropdown(null);
+  };
+
+  // Selected product object
+  const selectedProductFilter = useMemo(
+    () => products.find((p) => p.id === selectedProductFilterId),
+    [products, selectedProductFilterId]
+  );
+
+  // Filtered products list for product selector modal
+  const modalFilteredProducts = useMemo(() => {
+    return products.filter((p) => {
+      if (
+        productModalCategory !== 'all' &&
+        p.category?.toLowerCase() !== productModalCategory.toLowerCase()
+      ) {
+        return false;
+      }
+      if (productModalSearch.trim()) {
+        const q = productModalSearch.toLowerCase().trim();
+        const matchName = p.name.toLowerCase().includes(q);
+        const matchCode = p.barcode?.toLowerCase().includes(q);
+        const matchCat = p.category?.toLowerCase().includes(q);
+        if (!matchName && !matchCode && !matchCat) return false;
+      }
+      return true;
+    });
+  }, [products, productModalCategory, productModalSearch]);
+
+  // Sales Breakdown Metrics: POS (Face-to-Face), Online Showcase, Combined Total Sold, and Net (after Returns, Damaged, Lost)
+  const salesMetrics = useMemo(() => {
+    // 1. POS Face-to-Face Sales
+    const posOrders = orders.filter(
+      (o) => o.orderSource === 'pos' && o.status !== 'cancelled'
+    );
+    const posOrdersCount = posOrders.length;
+    let posPiecesSold = 0;
+    let posRevenue = 0;
+    posOrders.forEach((o) => {
+      posRevenue += o.totalAmount || 0;
+      if (Array.isArray(o.items)) {
+        o.items.forEach((it) => {
+          posPiecesSold += it.quantity || 1;
+        });
+      }
+    });
+
+    // 2. Online Showcase Sales
+    const onlineOrders = orders.filter(
+      (o) => o.orderSource !== 'pos' && o.status !== 'cancelled'
+    );
+    const onlineOrdersCount = onlineOrders.length;
+    let onlinePiecesSold = 0;
+    let onlineRevenue = 0;
+    onlineOrders.forEach((o) => {
+      onlineRevenue += o.totalAmount || 0;
+      if (Array.isArray(o.items)) {
+        o.items.forEach((it) => {
+          onlinePiecesSold += it.quantity || 1;
+        });
+      }
+    });
+
+    // 3. Combined Total Sold (POS + Online)
+    const combinedOrdersCount = posOrdersCount + onlineOrdersCount;
+    const combinedPiecesSold = posPiecesSold + onlinePiecesSold;
+    const combinedGrossRevenue = posRevenue + onlineRevenue;
+
+    // 4. Returns, Damaged, Lost from itemStatusLogs
+    let returnedCount = 0;
+    let damagedCount = 0;
+    let lostCount = 0;
+    let lossDeductionValue = 0;
+
+    itemStatusLogs.forEach((log) => {
+      const prod = products.find((p) => p.id === log.productId);
+      const price = prod ? prod.sellingPrice : 0;
+      if (log.type === 'returned') {
+        returnedCount += log.quantity;
+      } else if (log.type === 'damaged') {
+        damagedCount += log.quantity;
+        lossDeductionValue += price * log.quantity;
+      } else if (log.type === 'lost') {
+        lostCount += log.quantity;
+        lossDeductionValue += price * log.quantity;
+      }
+    });
+
+    const totalDispositions = returnedCount + damagedCount + lostCount;
+    const netPiecesSold = Math.max(0, combinedPiecesSold - (returnedCount + damagedCount + lostCount));
+    const netRevenue = Math.max(0, combinedGrossRevenue - lossDeductionValue);
+
+    return {
+      posOrdersCount,
+      posPiecesSold,
+      posRevenue,
+      onlineOrdersCount,
+      onlinePiecesSold,
+      onlineRevenue,
+      combinedOrdersCount,
+      combinedPiecesSold,
+      combinedGrossRevenue,
+      returnedCount,
+      damagedCount,
+      lostCount,
+      totalDispositions,
+      netPiecesSold,
+      netRevenue,
+      lossDeductionValue,
+    };
+  }, [orders, itemStatusLogs, products]);
+
+  // Filtered transactions sorted current date to past date (newest on top)
   const filteredTransactions = useMemo(() => {
     const now = new Date();
     const todayStr = now.toISOString().split('T')[0];
 
-    return transactions.filter((tx) => {
+    const filtered = transactions.filter((tx) => {
       // Flow type filter
       if (flowFilter !== 'all' && tx.flowType !== flowFilter) return false;
+
+      // Channel filter: POS vs Online vs Disbursement
+      if (channelFilter === 'pos') {
+        const order = tx.orderId ? orders.find((o) => o.id === tx.orderId) : null;
+        const isPos =
+          order?.orderSource === 'pos' ||
+          tx.category === 'POS Sales' ||
+          tx.account?.toLowerCase().includes('counter');
+        if (!isPos) return false;
+      } else if (channelFilter === 'online') {
+        const order = tx.orderId ? orders.find((o) => o.id === tx.orderId) : null;
+        const isOnline =
+          (order && order.orderSource !== 'pos') ||
+          tx.category === 'Showcase Sales' ||
+          tx.account?.toLowerCase().includes('order');
+        if (!isOnline) return false;
+      } else if (channelFilter === 'disbursement') {
+        if (tx.flowType !== 'outflow' && tx.category !== 'Disbursement') return false;
+      }
 
       // Payment method filter
       if (paymentFilter !== 'all' && tx.paymentMethod !== paymentFilter) return false;
 
-      // Search query
-      if (historySearch) {
-        const q = historySearch.toLowerCase();
-        const match =
+      // Product filter by specific Product Code / Name / ID
+      if (selectedProductFilterId) {
+        const prod = products.find((p) => p.id === selectedProductFilterId);
+        if (prod) {
+          const prodCode = prod.barcode?.toLowerCase();
+          const prodName = prod.name.toLowerCase();
+          let matched = false;
+
+          // Check related order items
+          if (tx.orderId) {
+            const ord = orders.find((o) => o.id === tx.orderId);
+            if (ord && Array.isArray(ord.items)) {
+              matched = ord.items.some(
+                (it) =>
+                  it.productId === prod.id ||
+                  it.name?.toLowerCase().includes(prodName) ||
+                  (prod.baleCode && it.baleCode === prod.baleCode)
+              );
+            }
+          }
+
+          // Check transaction description
+          if (!matched && tx.description) {
+            const desc = tx.description.toLowerCase();
+            if (desc.includes(prodName) || (prodCode && desc.includes(prodCode))) {
+              matched = true;
+            }
+          }
+
+          if (!matched) return false;
+        }
+      }
+
+      // Search query: checks description, account, category, payment method, order number, product code, product name
+      if (historySearch.trim()) {
+        const q = historySearch.toLowerCase().trim();
+        let match =
           tx.description.toLowerCase().includes(q) ||
           tx.account.toLowerCase().includes(q) ||
           tx.category.toLowerCase().includes(q) ||
           tx.paymentMethod.toLowerCase().includes(q);
+
+        // Check if related order has matching customer, order number, or items
+        if (!match && tx.orderId) {
+          const ord = orders.find((o) => o.id === tx.orderId);
+          if (ord) {
+            if (
+              ord.orderNumber.toLowerCase().includes(q) ||
+              ord.customerName?.toLowerCase().includes(q) ||
+              (ord.items &&
+                ord.items.some(
+                  (it) =>
+                    it.name?.toLowerCase().includes(q) ||
+                    (it.baleCode && it.baleCode.toLowerCase().includes(q))
+                ))
+            ) {
+              match = true;
+            }
+          }
+        }
+
+        // Check if any product code matches
+        if (!match) {
+          const matchedProd = products.find(
+            (p) => p.barcode?.toLowerCase().includes(q) || p.name.toLowerCase().includes(q)
+          );
+          if (matchedProd && tx.orderId) {
+            const ord = orders.find((o) => o.id === tx.orderId);
+            if (ord?.items?.some((it) => it.productId === matchedProd.id)) {
+              match = true;
+            }
+          }
+        }
+
         if (!match) return false;
       }
 
@@ -168,7 +502,33 @@ export const FinanceManagementView: React.FC = () => {
 
       return true;
     });
-  }, [transactions, flowFilter, paymentFilter, historySearch, datePreset, customStart, customEnd]);
+
+    // Sort descending: Current date down to past date (strictly newest on top)
+    return filtered.sort((a, b) => {
+      const dateA = a.date || a.createdAt.split('T')[0];
+      const dateB = b.date || b.createdAt.split('T')[0];
+      // Compare calendar date first (newest date first)
+      if (dateB !== dateA) {
+        return new Date(dateB).getTime() - new Date(dateA).getTime();
+      }
+      // If same calendar date, sort by full createdAt timestamp descending (newest on top)
+      const createdTimeA = new Date(a.createdAt || 0).getTime();
+      const createdTimeB = new Date(b.createdAt || 0).getTime();
+      return createdTimeB - createdTimeA;
+    });
+  }, [
+    transactions,
+    flowFilter,
+    channelFilter,
+    selectedProductFilterId,
+    paymentFilter,
+    historySearch,
+    datePreset,
+    customStart,
+    customEnd,
+    orders,
+    products,
+  ]);
 
   // Total Inflow, Total Outflow, Net Operating Outflow/Inflow
   const summary = useMemo(() => {
@@ -393,8 +753,22 @@ export const FinanceManagementView: React.FC = () => {
                               <Edit2 className="w-3.5 h-3.5" />
                             </button>
                             <button
-                              onClick={() => deleteExpenseAccount(acc.id)}
-                              className="p-1 rounded-lg text-stone-400 hover:text-red-400 hover:bg-red-500/10"
+                              type="button"
+                              onClick={() => {
+                                setDeleteTarget({
+                                  type: 'expense_account',
+                                  id: acc.id,
+                                  title: 'Delete Expense Account?',
+                                  message: 'Are you sure you want to delete this expense account budget? If you clicked this by accident, click Cancel to keep it.',
+                                  itemName: acc.name,
+                                  details: [
+                                    { label: 'Monthly Budget', value: `₱${limit.toLocaleString()}` },
+                                    { label: 'Current Spent', value: `₱${spent.toLocaleString()}` },
+                                  ],
+                                });
+                              }}
+                              className="p-1 rounded-lg text-stone-400 hover:text-red-400 hover:bg-red-500/10 cursor-pointer transition"
+                              title="Delete Expense Account"
                             >
                               <Trash2 className="w-3.5 h-3.5" />
                             </button>
@@ -596,7 +970,150 @@ export const FinanceManagementView: React.FC = () => {
       {/* ===================== TAB 3: TRANSACTION HISTORY ===================== */}
       {activeTab === 'history' && (
         <div className="space-y-6">
-          {/* Summary KPI Cards: Total Inflow, Total Outflow, Net Operating Outflow/Inflow */}
+          {/* Sales Channels Breakdown & Net Reconciliation (POS vs Online vs Combined vs Net) */}
+          <div className="space-y-3">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+              <div>
+                <h3 className="text-sm font-bold uppercase tracking-wider text-orange-400 flex items-center gap-2">
+                  <Store className="w-4 h-4" />
+                  <span>Sales Breakdown: POS Face-to-Face vs Online Showcase</span>
+                </h3>
+                <p className="text-xs text-stone-400">
+                  Track volume sold per channel, combined sales, and net inventory deductions
+                </p>
+              </div>
+
+              {/* Fast Action to Log Return, Damaged, or Lost */}
+              <button
+                type="button"
+                onClick={() => setIsLogModalOpen(true)}
+                className="self-start sm:self-auto py-2 px-3.5 rounded-xl bg-stone-900 hover:bg-stone-800 text-orange-400 hover:text-orange-300 border border-orange-500/30 text-xs font-bold transition flex items-center gap-2 shadow-sm cursor-pointer"
+              >
+                <RotateCcw className="w-3.5 h-3.5 text-orange-400" />
+                <span>+ Log Return / Damaged / Lost</span>
+              </button>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5">
+              {/* 1. POS Face-to-Face Sales */}
+              <div className="p-4 rounded-2xl glass-panel border border-orange-500/25 relative overflow-hidden flex flex-col justify-between">
+                <div>
+                  <div className="flex items-center justify-between text-xs">
+                    <span className="font-bold text-orange-400 flex items-center gap-1.5 uppercase tracking-wider text-[11px]">
+                      <Store className="w-3.5 h-3.5" />
+                      <span>POS (Face-to-Face)</span>
+                    </span>
+                    <span className="px-2 py-0.5 rounded-full bg-orange-500/20 text-orange-300 font-mono text-[10px] font-bold">
+                      Counter
+                    </span>
+                  </div>
+                  <div className="mt-2.5">
+                    <span className="text-2xl font-black text-white font-mono">
+                      {salesMetrics.posPiecesSold} <span className="text-xs font-normal text-stone-400 font-sans">pcs sold</span>
+                    </span>
+                  </div>
+                  <p className="text-xs font-bold text-emerald-400 font-mono mt-0.5">
+                    ₱{salesMetrics.posRevenue.toLocaleString()}
+                  </p>
+                </div>
+                <div className="pt-2 mt-2 border-t border-stone-800/80 text-[11px] text-stone-400 flex justify-between">
+                  <span>Completed Sales:</span>
+                  <span className="font-mono text-stone-200 font-bold">{salesMetrics.posOrdersCount} txns</span>
+                </div>
+                <div className="absolute bottom-0 left-0 right-0 h-1 bg-orange-500" />
+              </div>
+
+              {/* 2. Online Showcase Sales */}
+              <div className="p-4 rounded-2xl glass-panel border border-sky-500/25 relative overflow-hidden flex flex-col justify-between">
+                <div>
+                  <div className="flex items-center justify-between text-xs">
+                    <span className="font-bold text-sky-400 flex items-center gap-1.5 uppercase tracking-wider text-[11px]">
+                      <ShoppingBag className="w-3.5 h-3.5" />
+                      <span>Online Showcase</span>
+                    </span>
+                    <span className="px-2 py-0.5 rounded-full bg-sky-500/20 text-sky-300 font-mono text-[10px] font-bold">
+                      Delivery
+                    </span>
+                  </div>
+                  <div className="mt-2.5">
+                    <span className="text-2xl font-black text-white font-mono">
+                      {salesMetrics.onlinePiecesSold} <span className="text-xs font-normal text-stone-400 font-sans">pcs sold</span>
+                    </span>
+                  </div>
+                  <p className="text-xs font-bold text-emerald-400 font-mono mt-0.5">
+                    ₱{salesMetrics.onlineRevenue.toLocaleString()}
+                  </p>
+                </div>
+                <div className="pt-2 mt-2 border-t border-stone-800/80 text-[11px] text-stone-400 flex justify-between">
+                  <span>Customer Orders:</span>
+                  <span className="font-mono text-stone-200 font-bold">{salesMetrics.onlineOrdersCount} orders</span>
+                </div>
+                <div className="absolute bottom-0 left-0 right-0 h-1 bg-sky-500" />
+              </div>
+
+              {/* 3. Combined Total Sold (Face-to-Face + Online) */}
+              <div className="p-4 rounded-2xl glass-panel border border-emerald-500/30 relative overflow-hidden flex flex-col justify-between bg-gradient-to-br from-stone-900/90 via-stone-900/90 to-emerald-950/30">
+                <div>
+                  <div className="flex items-center justify-between text-xs">
+                    <span className="font-bold text-emerald-400 flex items-center gap-1.5 uppercase tracking-wider text-[11px]">
+                      <Layers className="w-3.5 h-3.5" />
+                      <span>Combined Total Sold</span>
+                    </span>
+                    <span className="px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 font-mono text-[10px] font-bold">
+                      Face-to-Face + Online
+                    </span>
+                  </div>
+                  <div className="mt-2.5">
+                    <span className="text-2xl font-black text-emerald-300 font-mono">
+                      {salesMetrics.combinedPiecesSold} <span className="text-xs font-normal text-stone-300 font-sans">total pcs</span>
+                    </span>
+                  </div>
+                  <p className="text-xs font-bold text-emerald-400 font-mono mt-0.5">
+                    Gross: ₱{salesMetrics.combinedGrossRevenue.toLocaleString()}
+                  </p>
+                </div>
+                <div className="pt-2 mt-2 border-t border-stone-800/80 text-[11px] text-stone-400 flex justify-between">
+                  <span>Total Transactions:</span>
+                  <span className="font-mono text-stone-200 font-bold">{salesMetrics.combinedOrdersCount} total</span>
+                </div>
+                <div className="absolute bottom-0 left-0 right-0 h-1 bg-emerald-500" />
+              </div>
+
+              {/* 4. Net Count & Net Revenue (After Returns, Damaged, Lost) */}
+              <div className="p-4 rounded-2xl glass-panel border border-amber-500/30 relative overflow-hidden flex flex-col justify-between bg-gradient-to-br from-stone-900/90 via-stone-900/90 to-amber-950/30">
+                <div>
+                  <div className="flex items-center justify-between text-xs">
+                    <span className="font-bold text-amber-400 flex items-center gap-1.5 uppercase tracking-wider text-[11px]">
+                      <RotateCcw className="w-3.5 h-3.5" />
+                      <span>Net Inventory & Sales</span>
+                    </span>
+                    <span className="px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-300 font-mono text-[10px] font-bold">
+                      Net
+                    </span>
+                  </div>
+                  <div className="mt-2.5">
+                    <span className="text-2xl font-black text-amber-300 font-mono">
+                      {salesMetrics.netPiecesSold} <span className="text-xs font-normal text-stone-300 font-sans">net pcs</span>
+                    </span>
+                  </div>
+                  <p className="text-xs font-bold text-amber-400 font-mono mt-0.5">
+                    Net: ₱{salesMetrics.netRevenue.toLocaleString()}
+                  </p>
+                </div>
+                <div className="pt-2 mt-2 border-t border-stone-800/80 text-[10px] text-stone-400 flex justify-between items-center">
+                  <span className="truncate">
+                    Deductions: {salesMetrics.returnedCount} ret / {salesMetrics.damagedCount} dam / {salesMetrics.lostCount} lost
+                  </span>
+                  <span className="font-mono text-rose-400 font-bold shrink-0 ml-1">
+                    -{salesMetrics.totalDispositions} pcs
+                  </span>
+                </div>
+                <div className="absolute bottom-0 left-0 right-0 h-1 bg-amber-500" />
+              </div>
+            </div>
+          </div>
+
+          {/* Cash Flow Summary KPI Cards: Total Inflow, Total Outflow, Net Operating Outflow/Inflow */}
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             <div className="p-5 rounded-2xl glass-panel relative overflow-hidden">
               <span className="text-xs font-semibold uppercase text-stone-400">Total Inflow</span>
@@ -633,222 +1150,884 @@ export const FinanceManagementView: React.FC = () => {
           </div>
 
           {/* Filters Bar & Export Button */}
-          <div className="p-5 rounded-3xl glass-panel space-y-4">
+          <div className="p-5 rounded-3xl glass-panel space-y-4 relative z-30">
             <div className="flex flex-col lg:flex-row items-stretch lg:items-center justify-between gap-3">
-              {/* Search button / input */}
+              {/* Search input */}
               <div className="relative flex-1">
                 <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-stone-400" />
                 <input
                   type="text"
-                  placeholder="Search description, account, category, or payment method..."
+                  placeholder="Search code, product name, order #, description, or payment method..."
                   value={historySearch}
                   onChange={(e) => setHistorySearch(e.target.value)}
                   className="w-full pl-10 pr-4 py-2.5 rounded-xl bg-stone-950 border border-orange-500/20 text-xs text-stone-100 focus:outline-none focus:border-orange-500"
                 />
+                {historySearch && (
+                  <button
+                    type="button"
+                    onClick={() => setHistorySearch('')}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-stone-400 hover:text-white text-xs cursor-pointer"
+                  >
+                    Clear
+                  </button>
+                )}
               </div>
 
-              {/* Export to Excel button */}
-              <button
-                onClick={handleExportExcel}
-                className="py-2.5 px-4 rounded-xl bg-stone-900 hover:bg-stone-800 text-stone-200 hover:text-white border border-orange-500/30 font-semibold text-xs flex items-center justify-center gap-2 transition cursor-pointer"
-              >
-                <Download className="w-4 h-4 text-orange-400" />
-                <span>Export to Excel / CSV</span>
-              </button>
+              {/* Action Buttons: Filter by Product & Export to Excel */}
+              <div className="flex items-center gap-2 flex-wrap sm:flex-nowrap">
+                {/* Filter by Product Button (like Product Inventory Management) */}
+                <button
+                  type="button"
+                  onClick={() => setIsProductFilterModalOpen(true)}
+                  className={`py-2.5 px-4 rounded-xl border font-semibold text-xs flex items-center justify-center gap-2 transition cursor-pointer shrink-0 ${
+                    selectedProductFilterId
+                      ? 'bg-orange-600 text-white border-orange-500 shadow-md shadow-orange-600/30'
+                      : 'bg-stone-900 hover:bg-stone-800 text-stone-200 hover:text-white border-orange-500/30'
+                  }`}
+                >
+                  <Filter className="w-4 h-4 text-orange-400" />
+                  <span>
+                    {selectedProductFilter
+                      ? `Filter: ${selectedProductFilter.barcode}`
+                      : 'Filter by Product'}
+                  </span>
+                </button>
+
+                {/* Export to Excel button */}
+                <button
+                  onClick={handleExportExcel}
+                  className="py-2.5 px-4 rounded-xl bg-stone-900 hover:bg-stone-800 text-stone-200 hover:text-white border border-orange-500/30 font-semibold text-xs flex items-center justify-center gap-2 transition cursor-pointer shrink-0"
+                >
+                  <Download className="w-4 h-4 text-orange-400" />
+                  <span>Export CSV</span>
+                </button>
+              </div>
             </div>
 
-            {/* Filter Row: Flows, Payment Method, Date Range */}
-            <div className="flex flex-wrap items-center gap-3 text-xs pt-1 border-t border-stone-800/80">
-              {/* Flow selection */}
-              <div className="flex items-center gap-1 bg-stone-950 p-1 rounded-xl border border-stone-800">
-                <span className="text-stone-400 px-2 font-medium">Flow:</span>
-                <button
-                  onClick={() => setFlowFilter('all')}
-                  className={`px-2.5 py-1 rounded-lg transition ${
-                    flowFilter === 'all' ? 'bg-orange-600 text-white font-bold' : 'text-stone-400'
-                  }`}
-                >
-                  All flows
-                </button>
-                <button
-                  onClick={() => setFlowFilter('inflow')}
-                  className={`px-2.5 py-1 rounded-lg transition ${
-                    flowFilter === 'inflow' ? 'bg-emerald-600 text-white font-bold' : 'text-stone-400'
-                  }`}
-                >
-                  Sales Inflow only
-                </button>
-                <button
-                  onClick={() => setFlowFilter('outflow')}
-                  className={`px-2.5 py-1 rounded-lg transition ${
-                    flowFilter === 'outflow' ? 'bg-rose-600 text-white font-bold' : 'text-stone-400'
-                  }`}
-                >
-                  Expense Outflow only
-                </button>
-              </div>
-
-              {/* Payment Method filter */}
-              <div className="flex items-center gap-1 bg-stone-950 p-1 rounded-xl border border-stone-800">
-                <span className="text-stone-400 px-2 font-medium">Payment:</span>
-                {['all', 'cash', 'gcash', 'bank_transfer', 'card'].map((method) => (
-                  <button
-                    key={method}
-                    onClick={() => setPaymentFilter(method)}
-                    className={`px-2 py-1 rounded-lg capitalize transition ${
-                      paymentFilter === method
-                        ? 'bg-orange-600 text-white font-bold'
-                        : 'text-stone-400'
-                    }`}
-                  >
-                    {method.replace('_', ' ')}
-                  </button>
-                ))}
-              </div>
-
-              {/* Date Presets */}
-              <div className="flex items-center gap-1 bg-stone-950 p-1 rounded-xl border border-stone-800">
-                <span className="text-stone-400 px-2 font-medium">Date:</span>
-                <button
-                  onClick={() => setDatePreset('all')}
-                  className={`px-2 py-1 rounded-lg transition ${
-                    datePreset === 'all' ? 'bg-orange-600 text-white font-bold' : 'text-stone-400'
-                  }`}
-                >
-                  All
-                </button>
-                <button
-                  onClick={() => setDatePreset('today')}
-                  className={`px-2 py-1 rounded-lg transition ${
-                    datePreset === 'today' ? 'bg-orange-600 text-white font-bold' : 'text-stone-400'
-                  }`}
-                >
-                  Today
-                </button>
-                <button
-                  onClick={() => setDatePreset('last7')}
-                  className={`px-2 py-1 rounded-lg transition ${
-                    datePreset === 'last7' ? 'bg-orange-600 text-white font-bold' : 'text-stone-400'
-                  }`}
-                >
-                  7 Days
-                </button>
-                <button
-                  onClick={() => setDatePreset('this_month')}
-                  className={`px-2 py-1 rounded-lg transition ${
-                    datePreset === 'this_month' ? 'bg-orange-600 text-white font-bold' : 'text-stone-400'
-                  }`}
-                >
-                  Month
-                </button>
-                <button
-                  onClick={() => setDatePreset('custom')}
-                  className={`px-2 py-1 rounded-lg transition ${
-                    datePreset === 'custom' ? 'bg-orange-600 text-white font-bold' : 'text-stone-400'
-                  }`}
-                >
-                  Custom
-                </button>
-              </div>
-
-              {datePreset === 'custom' && (
-                <div className="flex items-center gap-2 bg-stone-950 p-1.5 rounded-xl border border-stone-800 text-xs">
-                  <input
-                    type="date"
-                    value={customStart}
-                    onChange={(e) => setCustomStart(e.target.value)}
-                    className="bg-transparent text-stone-200 focus:outline-none"
-                  />
-                  <span className="text-stone-500">to</span>
-                  <input
-                    type="date"
-                    value={customEnd}
-                    onChange={(e) => setCustomEnd(e.target.value)}
-                    className="bg-transparent text-stone-200 focus:outline-none"
-                  />
+            {/* Active Product Filter Chip */}
+            {selectedProductFilter && (
+              <div className="flex items-center justify-between p-2.5 px-3 rounded-2xl bg-gradient-to-r from-orange-950/60 to-amber-950/40 border border-orange-500/40 text-xs">
+                <div className="flex items-center gap-2 min-w-0">
+                  <span className="font-mono text-orange-400 font-bold bg-stone-900 px-2 py-0.5 rounded border border-orange-500/30 shrink-0">
+                    {selectedProductFilter.barcode}
+                  </span>
+                  <span className="text-white font-semibold truncate">
+                    {selectedProductFilter.name}
+                  </span>
+                  <span className="text-stone-400 hidden sm:inline">
+                    ({selectedProductFilter.category})
+                  </span>
                 </div>
+                <button
+                  type="button"
+                  onClick={() => setSelectedProductFilterId(null)}
+                  className="text-stone-400 hover:text-white flex items-center gap-1 text-[11px] font-semibold hover:underline shrink-0 ml-2 cursor-pointer"
+                >
+                  <X className="w-3.5 h-3.5" />
+                  <span>Clear Filter</span>
+                </button>
+              </div>
+            )}
+
+            {/* Filter Controls Row: 4 Clean Dropdown Buttons (Channel, Flow, Payment Method, Date) */}
+            <div
+              ref={dropdownRef}
+              className="flex flex-wrap items-center gap-2.5 text-xs pt-2 border-t border-stone-800/80 relative z-30"
+            >
+              {/* 1. CHANNEL DROPDOWN BUTTON */}
+              <div className="relative">
+                <button
+                  type="button"
+                  onClick={() => setOpenDropdown(openDropdown === 'channel' ? null : 'channel')}
+                  className={`px-3 py-2 rounded-xl text-xs font-semibold flex items-center gap-2 border transition cursor-pointer ${
+                    channelFilter === 'pos'
+                      ? 'bg-orange-950/50 text-orange-300 border-orange-500/60 shadow-sm'
+                      : channelFilter === 'online'
+                      ? 'bg-sky-950/50 text-sky-300 border-sky-500/60 shadow-sm'
+                      : channelFilter === 'disbursement'
+                      ? 'bg-rose-950/50 text-rose-300 border-rose-500/60 shadow-sm'
+                      : openDropdown === 'channel'
+                      ? 'bg-stone-900 text-white border-orange-500'
+                      : 'bg-stone-950 hover:bg-stone-900 text-stone-200 hover:text-white border-stone-800'
+                  }`}
+                >
+                  {channelFilter === 'pos' ? (
+                    <Store className="w-3.5 h-3.5 text-orange-400" />
+                  ) : channelFilter === 'online' ? (
+                    <ShoppingBag className="w-3.5 h-3.5 text-sky-400" />
+                  ) : channelFilter === 'disbursement' ? (
+                    <Receipt className="w-3.5 h-3.5 text-rose-400" />
+                  ) : (
+                    <Layers className="w-3.5 h-3.5 text-orange-400" />
+                  )}
+                  <span>{getChannelLabel()}</span>
+                  <ChevronDown
+                    className={`w-3.5 h-3.5 text-stone-400 transition-transform duration-200 ${
+                      openDropdown === 'channel' ? 'rotate-180 text-orange-400' : ''
+                    }`}
+                  />
+                </button>
+
+                {/* Channel Dropdown Menu */}
+                {openDropdown === 'channel' && (
+                  <div className="absolute left-0 top-full mt-1.5 w-60 rounded-2xl bg-stone-900 border border-stone-700 shadow-2xl p-1.5 z-50 space-y-1">
+                    <div className="px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider text-stone-400">
+                      Channel Selection
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setChannelFilter('all');
+                        setOpenDropdown(null);
+                      }}
+                      className={`w-full text-left px-3 py-2 rounded-xl text-xs flex items-center justify-between transition cursor-pointer ${
+                        channelFilter === 'all'
+                          ? 'bg-orange-500/20 text-orange-300 font-bold border border-orange-500/30'
+                          : 'text-stone-300 hover:bg-stone-800 hover:text-white'
+                      }`}
+                    >
+                      <div className="flex items-center gap-2">
+                        <Layers className="w-3.5 h-3.5 text-orange-400" />
+                        <div>
+                          <div>All Channels</div>
+                          <div className="text-[10px] text-stone-400 font-normal">POS, Online & Disbursements</div>
+                        </div>
+                      </div>
+                      {channelFilter === 'all' && <Check className="w-4 h-4 text-orange-400" />}
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setChannelFilter('pos');
+                        setOpenDropdown(null);
+                      }}
+                      className={`w-full text-left px-3 py-2 rounded-xl text-xs flex items-center justify-between transition cursor-pointer ${
+                        channelFilter === 'pos'
+                          ? 'bg-orange-500/20 text-orange-300 font-bold border border-orange-500/30'
+                          : 'text-stone-300 hover:bg-stone-800 hover:text-white'
+                      }`}
+                    >
+                      <div className="flex items-center gap-2">
+                        <Store className="w-3.5 h-3.5 text-orange-400" />
+                        <div>
+                          <div>POS (Face-to-Face)</div>
+                          <div className="text-[10px] text-stone-400 font-normal">Physical in-store register sales</div>
+                        </div>
+                      </div>
+                      {channelFilter === 'pos' && <Check className="w-4 h-4 text-orange-400" />}
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setChannelFilter('online');
+                        setOpenDropdown(null);
+                      }}
+                      className={`w-full text-left px-3 py-2 rounded-xl text-xs flex items-center justify-between transition cursor-pointer ${
+                        channelFilter === 'online'
+                          ? 'bg-sky-500/20 text-sky-300 font-bold border border-sky-500/30'
+                          : 'text-stone-300 hover:bg-stone-800 hover:text-white'
+                      }`}
+                    >
+                      <div className="flex items-center gap-2">
+                        <ShoppingBag className="w-3.5 h-3.5 text-sky-400" />
+                        <div>
+                          <div>Online Orders</div>
+                          <div className="text-[10px] text-stone-400 font-normal">Digital showcase & web orders</div>
+                        </div>
+                      </div>
+                      {channelFilter === 'online' && <Check className="w-4 h-4 text-sky-400" />}
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setChannelFilter('disbursement');
+                        setOpenDropdown(null);
+                      }}
+                      className={`w-full text-left px-3 py-2 rounded-xl text-xs flex items-center justify-between transition cursor-pointer ${
+                        channelFilter === 'disbursement'
+                          ? 'bg-rose-500/20 text-rose-300 font-bold border border-rose-500/30'
+                          : 'text-stone-300 hover:bg-stone-800 hover:text-white'
+                      }`}
+                    >
+                      <div className="flex items-center gap-2">
+                        <Receipt className="w-3.5 h-3.5 text-rose-400" />
+                        <div>
+                          <div>Disbursements</div>
+                          <div className="text-[10px] text-stone-400 font-normal">Operating costs & money out</div>
+                        </div>
+                      </div>
+                      {channelFilter === 'disbursement' && <Check className="w-4 h-4 text-rose-400" />}
+                    </button>
+                  </div>
+                )}
+              </div>
+
+              {/* 2. FLOW DROPDOWN BUTTON */}
+              <div className="relative">
+                <button
+                  type="button"
+                  onClick={() => setOpenDropdown(openDropdown === 'flow' ? null : 'flow')}
+                  className={`px-3 py-2 rounded-xl text-xs font-semibold flex items-center gap-2 border transition cursor-pointer ${
+                    flowFilter === 'inflow'
+                      ? 'bg-emerald-950/50 text-emerald-300 border-emerald-500/60 shadow-sm'
+                      : flowFilter === 'outflow'
+                      ? 'bg-rose-950/50 text-rose-300 border-rose-500/60 shadow-sm'
+                      : openDropdown === 'flow'
+                      ? 'bg-stone-900 text-white border-orange-500'
+                      : 'bg-stone-950 hover:bg-stone-900 text-stone-200 hover:text-white border-stone-800'
+                  }`}
+                >
+                  <ArrowUpDown
+                    className={`w-3.5 h-3.5 ${
+                      flowFilter === 'inflow'
+                        ? 'text-emerald-400'
+                        : flowFilter === 'outflow'
+                        ? 'text-rose-400'
+                        : 'text-orange-400'
+                    }`}
+                  />
+                  <span>{getFlowLabel()}</span>
+                  <ChevronDown
+                    className={`w-3.5 h-3.5 text-stone-400 transition-transform duration-200 ${
+                      openDropdown === 'flow' ? 'rotate-180 text-orange-400' : ''
+                    }`}
+                  />
+                </button>
+
+                {/* Flow Dropdown Menu */}
+                {openDropdown === 'flow' && (
+                  <div className="absolute left-0 top-full mt-1.5 w-56 rounded-2xl bg-stone-900 border border-stone-700 shadow-2xl p-1.5 z-50 space-y-1">
+                    <div className="px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider text-stone-400">
+                      Cash Flow Type
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setFlowFilter('all');
+                        setOpenDropdown(null);
+                      }}
+                      className={`w-full text-left px-3 py-2 rounded-xl text-xs flex items-center justify-between transition cursor-pointer ${
+                        flowFilter === 'all'
+                          ? 'bg-orange-500/20 text-orange-300 font-bold border border-orange-500/30'
+                          : 'text-stone-300 hover:bg-stone-800 hover:text-white'
+                      }`}
+                    >
+                      <div className="flex items-center gap-2">
+                        <ArrowUpDown className="w-3.5 h-3.5 text-orange-400" />
+                        <span>All Flows</span>
+                      </div>
+                      {flowFilter === 'all' && <Check className="w-4 h-4 text-orange-400" />}
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setFlowFilter('inflow');
+                        setOpenDropdown(null);
+                      }}
+                      className={`w-full text-left px-3 py-2 rounded-xl text-xs flex items-center justify-between transition cursor-pointer ${
+                        flowFilter === 'inflow'
+                          ? 'bg-emerald-500/20 text-emerald-300 font-bold border border-emerald-500/30'
+                          : 'text-stone-300 hover:bg-stone-800 hover:text-white'
+                      }`}
+                    >
+                      <div className="flex items-center gap-2">
+                        <ArrowUpRight className="w-3.5 h-3.5 text-emerald-400" />
+                        <div>
+                          <div>Inflow (Money In)</div>
+                          <div className="text-[10px] text-stone-400 font-normal">POS sales, online orders</div>
+                        </div>
+                      </div>
+                      {flowFilter === 'inflow' && <Check className="w-4 h-4 text-emerald-400" />}
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setFlowFilter('outflow');
+                        setOpenDropdown(null);
+                      }}
+                      className={`w-full text-left px-3 py-2 rounded-xl text-xs flex items-center justify-between transition cursor-pointer ${
+                        flowFilter === 'outflow'
+                          ? 'bg-rose-500/20 text-rose-300 font-bold border border-rose-500/30'
+                          : 'text-stone-300 hover:bg-stone-800 hover:text-white'
+                      }`}
+                    >
+                      <div className="flex items-center gap-2">
+                        <ArrowDownRight className="w-3.5 h-3.5 text-rose-400" />
+                        <div>
+                          <div>Outflow (Money Out)</div>
+                          <div className="text-[10px] text-stone-400 font-normal">Expenses, disbursements</div>
+                        </div>
+                      </div>
+                      {flowFilter === 'outflow' && <Check className="w-4 h-4 text-rose-400" />}
+                    </button>
+                  </div>
+                )}
+              </div>
+
+              {/* 3. PAYMENT METHOD DROPDOWN BUTTON */}
+              <div className="relative">
+                <button
+                  type="button"
+                  onClick={() => setOpenDropdown(openDropdown === 'payment' ? null : 'payment')}
+                  className={`px-3 py-2 rounded-xl text-xs font-semibold flex items-center gap-2 border transition cursor-pointer ${
+                    paymentFilter !== 'all'
+                      ? 'bg-orange-950/50 text-orange-300 border-orange-500/60 shadow-sm'
+                      : openDropdown === 'payment'
+                      ? 'bg-stone-900 text-white border-orange-500'
+                      : 'bg-stone-950 hover:bg-stone-900 text-stone-200 hover:text-white border-stone-800'
+                  }`}
+                >
+                  <CreditCard className="w-3.5 h-3.5 text-orange-400" />
+                  <span>{getPaymentLabel()}</span>
+                  <ChevronDown
+                    className={`w-3.5 h-3.5 text-stone-400 transition-transform duration-200 ${
+                      openDropdown === 'payment' ? 'rotate-180 text-orange-400' : ''
+                    }`}
+                  />
+                </button>
+
+                {/* Payment Dropdown Menu */}
+                {openDropdown === 'payment' && (
+                  <div className="absolute left-0 top-full mt-1.5 w-52 rounded-2xl bg-stone-900 border border-stone-700 shadow-2xl p-1.5 z-50 space-y-1">
+                    <div className="px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider text-stone-400">
+                      Payment Method
+                    </div>
+                    {[
+                      { id: 'all', label: 'All Payment Methods' },
+                      { id: 'cash', label: 'Cash' },
+                      { id: 'gcash', label: 'GCash' },
+                      { id: 'bank_transfer', label: 'Bank Transfer' },
+                      { id: 'card', label: 'Debit / Credit Card' },
+                    ].map((item) => (
+                      <button
+                        key={item.id}
+                        type="button"
+                        onClick={() => {
+                          setPaymentFilter(item.id);
+                          setOpenDropdown(null);
+                        }}
+                        className={`w-full text-left px-3 py-2 rounded-xl text-xs flex items-center justify-between transition cursor-pointer ${
+                          paymentFilter === item.id
+                            ? 'bg-orange-500/20 text-orange-300 font-bold border border-orange-500/30'
+                            : 'text-stone-300 hover:bg-stone-800 hover:text-white'
+                        }`}
+                      >
+                        <span>{item.label}</span>
+                        {paymentFilter === item.id && <Check className="w-4 h-4 text-orange-400" />}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* 4. DATE DROPDOWN BUTTON */}
+              <div className="relative">
+                <button
+                  type="button"
+                  onClick={() => setOpenDropdown(openDropdown === 'date' ? null : 'date')}
+                  className={`px-3 py-2 rounded-xl text-xs font-semibold flex items-center gap-2 border transition cursor-pointer ${
+                    datePreset !== 'all'
+                      ? 'bg-amber-950/50 text-amber-300 border-amber-500/60 shadow-sm'
+                      : openDropdown === 'date'
+                      ? 'bg-stone-900 text-white border-orange-500'
+                      : 'bg-stone-950 hover:bg-stone-900 text-stone-200 hover:text-white border-stone-800'
+                  }`}
+                >
+                  <Calendar className="w-3.5 h-3.5 text-orange-400" />
+                  <span>{getDateLabel()}</span>
+                  <ChevronDown
+                    className={`w-3.5 h-3.5 text-stone-400 transition-transform duration-200 ${
+                      openDropdown === 'date' ? 'rotate-180 text-orange-400' : ''
+                    }`}
+                  />
+                </button>
+
+                {/* Date Dropdown Menu */}
+                {openDropdown === 'date' && (
+                  <div className="absolute left-0 sm:left-auto sm:right-0 top-full mt-1.5 w-72 rounded-2xl bg-stone-900 border border-stone-700 shadow-2xl p-2.5 z-50 space-y-2">
+                    <div className="px-1 text-[10px] font-bold uppercase tracking-wider text-stone-400">
+                      Date Range Presets
+                    </div>
+                    <div className="space-y-1">
+                      {[
+                        { id: 'all', label: 'All Time' },
+                        { id: 'today', label: 'Today (Current Day)' },
+                        { id: 'last7', label: 'Last 7 Days' },
+                        { id: 'this_month', label: 'This Month' },
+                        { id: 'custom', label: 'Custom Date Range...' },
+                      ].map((item) => (
+                        <button
+                          key={item.id}
+                          type="button"
+                          onClick={() => {
+                            setDatePreset(item.id as any);
+                            if (item.id !== 'custom') {
+                              setOpenDropdown(null);
+                            }
+                          }}
+                          className={`w-full text-left px-3 py-1.5 rounded-xl text-xs flex items-center justify-between transition cursor-pointer ${
+                            datePreset === item.id
+                              ? 'bg-orange-500/20 text-orange-300 font-bold border border-orange-500/30'
+                              : 'text-stone-300 hover:bg-stone-800 hover:text-white'
+                          }`}
+                        >
+                          <span>{item.label}</span>
+                          {datePreset === item.id && <Check className="w-4 h-4 text-orange-400" />}
+                        </button>
+                      ))}
+                    </div>
+
+                    {/* Custom Range Inputs (displayed when custom preset is selected) */}
+                    {datePreset === 'custom' && (
+                      <div className="pt-2 mt-1 border-t border-stone-800 space-y-2 bg-stone-950/70 p-2.5 rounded-xl border border-stone-800">
+                        <div className="text-[11px] font-semibold text-stone-300 flex items-center justify-between">
+                          <span>Specify Range</span>
+                          {(customStart || customEnd) && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setCustomStart('');
+                                setCustomEnd('');
+                              }}
+                              className="text-[10px] text-rose-400 hover:underline cursor-pointer"
+                            >
+                              Clear
+                            </button>
+                          )}
+                        </div>
+                        <div className="grid grid-cols-2 gap-2 text-xs">
+                          <div>
+                            <label className="block text-[10px] text-stone-400 mb-0.5">From</label>
+                            <input
+                              type="date"
+                              value={customStart}
+                              onChange={(e) => setCustomStart(e.target.value)}
+                              className="w-full bg-stone-900 border border-stone-700 rounded-lg px-2 py-1 text-stone-100 focus:outline-none focus:border-orange-500 text-xs"
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-[10px] text-stone-400 mb-0.5">To</label>
+                            <input
+                              type="date"
+                              value={customEnd}
+                              onChange={(e) => setCustomEnd(e.target.value)}
+                              className="w-full bg-stone-900 border border-stone-700 rounded-lg px-2 py-1 text-stone-100 focus:outline-none focus:border-orange-500 text-xs"
+                            />
+                          </div>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => setOpenDropdown(null)}
+                          className="w-full mt-1 py-1.5 bg-orange-600 hover:bg-orange-500 text-white font-bold rounded-lg text-xs transition cursor-pointer text-center"
+                        >
+                          Apply Range
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+
+              {/* Reset Filters Button if any filter is active */}
+              {isAnyFilterActive && (
+                <button
+                  type="button"
+                  onClick={handleResetFilters}
+                  className="px-2.5 py-2 rounded-xl text-xs font-semibold text-stone-400 hover:text-white bg-stone-900 hover:bg-stone-800 border border-stone-800 flex items-center gap-1.5 transition cursor-pointer"
+                  title="Reset all active filters"
+                >
+                  <RotateCcw className="w-3.5 h-3.5 text-stone-400" />
+                  <span>Reset</span>
+                </button>
               )}
             </div>
           </div>
 
-          {/* Database Table Below as requested */}
-          <div className="p-6 rounded-3xl glass-panel space-y-4">
-            <div className="flex items-center justify-between pb-3 border-b border-orange-500/20">
-              <h3 className="text-base font-bold text-white">Financial Transactions Ledger</h3>
-              <span className="text-xs font-mono text-orange-400">
-                {filteredTransactions.length} Transactions
-              </span>
+          {/* Database Table Below: Scrollable if more than 20 rows, Current date to past date at top */}
+          <div className="p-4 sm:p-6 rounded-3xl glass-panel space-y-3.5 relative z-10">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-3 border-b border-orange-500/20">
+              <div>
+                <h3 className="text-base font-bold text-white flex items-center gap-2 flex-wrap">
+                  <span>Financial Transactions Ledger</span>
+                  <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
+                    Newest First (Current Date → Past)
+                  </span>
+                </h3>
+                <p className="text-xs text-stone-400 mt-0.5">
+                  Transactions sorted chronologically from current date to past. Max 20 rows visible before scrolling.
+                </p>
+              </div>
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="text-xs font-mono text-orange-400 bg-stone-950 px-3 py-1.5 rounded-xl border border-orange-500/20">
+                  {filteredTransactions.length} Transactions
+                  {filteredTransactions.length > 20 && ' (20 visible • Scroll for more)'}
+                </span>
+                {filteredTransactions.length > 20 && (
+                  <span className="text-[10px] text-stone-400 bg-stone-900/80 px-2 py-1 rounded-lg border border-stone-800 hidden sm:flex items-center gap-1 font-mono">
+                    <ArrowUpDown className="w-3 h-3 text-orange-400" />
+                    <span>Scrollbar Active</span>
+                  </span>
+                )}
+              </div>
             </div>
 
             {filteredTransactions.length === 0 ? (
-              <p className="text-center py-8 text-xs text-stone-400">
+              <p className="text-center py-10 text-xs text-stone-400">
                 No financial transactions recorded for this filter. Transactions from POS sales, shop orders, and expense disbursements will automatically appear here!
               </p>
             ) : (
-              <div className="overflow-x-auto">
-                <table className="w-full text-left text-xs border-collapse">
-                  <thead>
-                    <tr className="border-b border-orange-500/20 text-stone-400 uppercase text-[11px]">
-                      <th className="py-3 px-3">Date</th>
-                      <th className="py-3 px-3">Flow Type</th>
-                      <th className="py-3 px-3">Account / Category</th>
-                      <th className="py-3 px-3">Description</th>
-                      <th className="py-3 px-3">Payment Method</th>
-                      <th className="py-3 px-3 text-right">Inflow (₱)</th>
-                      <th className="py-3 px-3 text-right">Outflow (₱)</th>
-                      <th className="py-3 px-3 text-center">Action</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-stone-800 font-mono">
-                    {filteredTransactions.map((tx) => (
-                      <tr key={tx.id} className="hover:bg-stone-800/40 transition">
-                        <td className="py-3.5 px-3 text-stone-300">
+              <>
+                {/* Mobile Touch Cards View (visible on < md) with max 20 scrollbar */}
+                <div className="block md:hidden max-h-[750px] overflow-y-auto space-y-2.5 pr-1 scrollbar-thin scrollbar-thumb-orange-500/60 scrollbar-track-stone-950">
+                  {filteredTransactions.map((tx) => (
+                    <div
+                      key={tx.id}
+                      className="p-3.5 rounded-2xl bg-stone-950/70 border border-stone-800 space-y-2"
+                    >
+                      <div className="flex items-center justify-between text-xs">
+                        <span className="text-stone-400 font-mono text-[11px]">
                           {tx.date || tx.createdAt.split('T')[0]}
-                        </td>
-                        <td className="py-3.5 px-3 font-sans">
+                        </span>
+                        <span
+                          className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider ${
+                            tx.flowType === 'inflow'
+                              ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
+                              : 'bg-rose-500/20 text-rose-400 border border-rose-500/30'
+                          }`}
+                        >
+                          {tx.flowType}
+                        </span>
+                      </div>
+
+                      <div>
+                        <p className="font-semibold text-white text-xs">{tx.account || tx.category}</p>
+                        <p className="text-[11px] text-stone-400 truncate mt-0.5">{tx.description}</p>
+                      </div>
+
+                      <div className="flex items-center justify-between pt-1.5 border-t border-stone-800/80 text-xs">
+                        <span className="text-[11px] text-stone-400 uppercase font-mono">
+                          {tx.paymentMethod.replace('_', ' ')}
+                        </span>
+                        <div className="flex items-center gap-2">
                           <span
-                            className={`inline-block px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider ${
-                              tx.flowType === 'inflow'
-                                ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
-                                : 'bg-rose-500/20 text-rose-400 border border-rose-500/30'
+                            className={`font-mono font-bold text-sm ${
+                              tx.flowType === 'inflow' ? 'text-emerald-400' : 'text-rose-400'
                             }`}
                           >
-                            {tx.flowType}
+                            {tx.flowType === 'inflow'
+                              ? `+₱${(tx.inflow || 0).toLocaleString()}`
+                              : `-₱${(tx.outflow || 0).toLocaleString()}`}
                           </span>
-                        </td>
-                        <td className="py-3.5 px-3 font-sans font-medium text-white">
-                          {tx.account || tx.category}
-                        </td>
-                        <td className="py-3.5 px-3 font-sans text-stone-400 max-w-xs truncate">
-                          {tx.description}
-                        </td>
-                        <td className="py-3.5 px-3 uppercase text-stone-300">
-                          {tx.paymentMethod.replace('_', ' ')}
-                        </td>
-                        <td className="py-3.5 px-3 text-right font-bold text-emerald-400">
-                          {tx.inflow ? `₱${tx.inflow.toLocaleString()}` : '—'}
-                        </td>
-                        <td className="py-3.5 px-3 text-right font-bold text-rose-400">
-                          {tx.outflow ? `₱${tx.outflow.toLocaleString()}` : '—'}
-                        </td>
-                        <td className="py-3.5 px-3 text-center">
                           <button
-                            onClick={() => deleteTransaction(tx.id)}
-                            className="p-1.5 rounded-lg text-stone-400 hover:text-red-400 hover:bg-red-500/10 transition"
+                            type="button"
+                            onClick={() => {
+                              setDeleteTarget({
+                                type: 'transaction',
+                                id: tx.id,
+                                title: 'Delete Financial Transaction?',
+                                message: 'Are you sure you want to delete this transaction record? If you clicked this by accident, click Cancel to keep it.',
+                                itemName: `${tx.flowType.toUpperCase()}: ${tx.account || tx.category}`,
+                                details: [
+                                  { label: 'Date', value: tx.date || tx.createdAt.split('T')[0] },
+                                  { label: 'Amount', value: `₱${((tx.inflow || 0) + (tx.outflow || 0)).toLocaleString()}` },
+                                  { label: 'Payment Method', value: tx.paymentMethod.replace('_', ' ').toUpperCase() },
+                                  { label: 'Description', value: tx.description || 'N/A' },
+                                ],
+                              });
+                            }}
+                            className="p-1 rounded-lg text-stone-500 hover:text-red-400 hover:bg-red-500/10 transition cursor-pointer"
                             title="Delete Transaction"
                           >
                             <Trash2 className="w-3.5 h-3.5" />
                           </button>
-                        </td>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
+                {/* Desktop Full Table View (visible on md+) with max 20 rows height & scrollbar if too long */}
+                <div className="hidden md:block overflow-x-auto max-h-[860px] overflow-y-auto rounded-2xl border border-stone-800 scrollbar-thin scrollbar-thumb-orange-500/60 scrollbar-track-stone-950">
+                  <table className="w-full text-left text-xs border-collapse">
+                    <thead className="sticky top-0 z-10 bg-stone-900 border-b border-orange-500/20 shadow-sm backdrop-blur-md">
+                      <tr className="text-stone-400 uppercase text-[11px]">
+                        <th className="py-3 px-3">Date (Current→Past)</th>
+                        <th className="py-3 px-3">Flow Type</th>
+                        <th className="py-3 px-3">Account / Category</th>
+                        <th className="py-3 px-3">Description</th>
+                        <th className="py-3 px-3">Payment Method</th>
+                        <th className="py-3 px-3 text-right">Inflow (₱)</th>
+                        <th className="py-3 px-3 text-right">Outflow (₱)</th>
+                        <th className="py-3 px-3 text-center">Action</th>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
+                    </thead>
+                    <tbody className="divide-y divide-stone-800 font-mono">
+                      {filteredTransactions.map((tx) => (
+                        <tr key={tx.id} className="hover:bg-stone-800/40 transition">
+                          <td className="py-3.5 px-3 text-stone-300">
+                            {tx.date || tx.createdAt.split('T')[0]}
+                          </td>
+                          <td className="py-3.5 px-3 font-sans">
+                            <span
+                              className={`inline-block px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider ${
+                                tx.flowType === 'inflow'
+                                  ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
+                                  : 'bg-rose-500/20 text-rose-400 border border-rose-500/30'
+                              }`}
+                            >
+                              {tx.flowType}
+                            </span>
+                          </td>
+                          <td className="py-3.5 px-3 font-sans font-medium text-white">
+                            {tx.account || tx.category}
+                          </td>
+                          <td className="py-3.5 px-3 font-sans text-stone-400 max-w-xs truncate">
+                            {tx.description}
+                          </td>
+                          <td className="py-3.5 px-3 uppercase text-stone-300">
+                            {tx.paymentMethod.replace('_', ' ')}
+                          </td>
+                          <td className="py-3.5 px-3 text-right font-bold text-emerald-400">
+                            {tx.inflow ? `₱${tx.inflow.toLocaleString()}` : '—'}
+                          </td>
+                          <td className="py-3.5 px-3 text-right font-bold text-rose-400">
+                            {tx.outflow ? `₱${tx.outflow.toLocaleString()}` : '—'}
+                          </td>
+                          <td className="py-3.5 px-3 text-center">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setDeleteTarget({
+                                  type: 'transaction',
+                                  id: tx.id,
+                                  title: 'Delete Financial Transaction?',
+                                  message: 'Are you sure you want to delete this transaction record? If you clicked this by accident, click Cancel to keep it.',
+                                  itemName: `${tx.flowType.toUpperCase()}: ${tx.account || tx.category}`,
+                                  details: [
+                                    { label: 'Date', value: tx.date || tx.createdAt.split('T')[0] },
+                                    { label: 'Amount', value: `₱${((tx.inflow || 0) + (tx.outflow || 0)).toLocaleString()}` },
+                                    { label: 'Payment Method', value: tx.paymentMethod.replace('_', ' ').toUpperCase() },
+                                    { label: 'Description', value: tx.description || 'N/A' },
+                                  ],
+                                });
+                              }}
+                              className="p-1.5 rounded-lg text-stone-400 hover:text-red-400 hover:bg-red-500/10 transition cursor-pointer"
+                              title="Delete Transaction"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </>
             )}
           </div>
         </div>
       )}
+
+      {/* Modal to Log Return, Damaged, or Lost with Product Search & Filter */}
+      <LogItemStatusModal
+        isOpen={isLogModalOpen}
+        onClose={() => setIsLogModalOpen(false)}
+      />
+
+      {/* Modal to Filter Ledger by Product (Like Product Inventory Management) */}
+      {isProductFilterModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/80 backdrop-blur-md animate-fade-in overflow-y-auto">
+          <div className="relative w-full max-w-xl bg-stone-900/95 border border-orange-500/30 rounded-3xl p-5 sm:p-6 shadow-2xl backdrop-blur-xl text-stone-100 max-h-[90vh] flex flex-col my-auto">
+            {/* Modal Header */}
+            <div className="flex items-center justify-between pb-3 border-b border-orange-500/20 shrink-0">
+              <div>
+                <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-orange-500/10 border border-orange-500/30 text-orange-400 text-[11px] font-semibold uppercase tracking-wider mb-1">
+                  <Filter className="w-3 h-3" />
+                  <span>Product Inventory Filter</span>
+                </div>
+                <h3 className="text-lg font-bold text-white">Filter Ledger by Product</h3>
+                <p className="text-xs text-stone-400">
+                  Search item code or name to instantly isolate transaction history without scrolling
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsProductFilterModalOpen(false)}
+                className="p-2 rounded-xl text-stone-400 hover:text-white hover:bg-stone-800 transition cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Modal Body */}
+            <div className="flex-1 overflow-y-auto py-3.5 space-y-3">
+              {/* Search Bar */}
+              <div className="relative">
+                <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-stone-400" />
+                <input
+                  type="text"
+                  placeholder="Search Product Code (e.g. EX-123456), Name, or Category..."
+                  value={productModalSearch}
+                  onChange={(e) => setProductModalSearch(e.target.value)}
+                  className="w-full pl-10 pr-16 py-2.5 rounded-xl bg-stone-950 border border-orange-500/30 text-xs sm:text-sm text-stone-100 placeholder:text-stone-500 focus:outline-none focus:border-orange-500"
+                />
+                {productModalSearch && (
+                  <button
+                    type="button"
+                    onClick={() => setProductModalSearch('')}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-stone-400 hover:text-white text-xs cursor-pointer"
+                  >
+                    Clear
+                  </button>
+                )}
+              </div>
+
+              {/* Category Filter Buttons */}
+              <div className="flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-none text-xs">
+                <button
+                  type="button"
+                  onClick={() => setProductModalCategory('all')}
+                  className={`px-3 py-1.5 rounded-xl font-semibold whitespace-nowrap transition cursor-pointer text-xs ${
+                    productModalCategory === 'all'
+                      ? 'bg-orange-600 text-white shadow-md'
+                      : 'bg-stone-950 border border-stone-800 text-stone-400 hover:text-white'
+                  }`}
+                >
+                  All ({products.length})
+                </button>
+                {categories.map((c) => {
+                  const count = products.filter(
+                    (p) => p.category?.toLowerCase() === c.name?.toLowerCase()
+                  ).length;
+                  return (
+                    <button
+                      key={c.id}
+                      type="button"
+                      onClick={() => setProductModalCategory(c.name)}
+                      className={`px-3 py-1.5 rounded-xl font-semibold whitespace-nowrap transition cursor-pointer text-xs flex items-center gap-1.5 ${
+                        productModalCategory.toLowerCase() === c.name.toLowerCase()
+                          ? 'bg-orange-600 text-white shadow-md'
+                          : 'bg-stone-950 border border-stone-800 text-stone-400 hover:text-white'
+                      }`}
+                    >
+                      <span>{c.name}</span>
+                      <span className="text-[10px] opacity-75 font-mono">({count})</span>
+                    </button>
+                  );
+                })}
+              </div>
+
+              {/* Product Match List */}
+              <div className="max-h-60 overflow-y-auto space-y-1.5 pr-1 border border-stone-800 rounded-2xl p-2 bg-stone-950/60 scrollbar-thin scrollbar-thumb-orange-500/50">
+                {modalFilteredProducts.length === 0 ? (
+                  <p className="text-center py-8 text-xs text-stone-400">
+                    No products found matching "{productModalSearch}". Try searching product code (e.g. EX-...) or name.
+                  </p>
+                ) : (
+                  modalFilteredProducts.map((p) => {
+                    const isSelected = selectedProductFilterId === p.id;
+                    return (
+                      <div
+                        key={p.id}
+                        onClick={() => {
+                          setSelectedProductFilterId(p.id);
+                          setIsProductFilterModalOpen(false);
+                        }}
+                        className={`p-2.5 rounded-xl border flex items-center justify-between gap-3 cursor-pointer transition ${
+                          isSelected
+                            ? 'bg-orange-950/70 border-orange-500 text-white'
+                            : 'bg-stone-900/80 hover:bg-stone-800/80 border-stone-800 hover:border-orange-500/50'
+                        }`}
+                      >
+                        <div className="flex items-center gap-2.5 min-w-0">
+                          {p.imageUrl ? (
+                            <img
+                              src={p.imageUrl}
+                              alt={p.name}
+                              className="w-10 h-10 rounded-lg object-cover border border-stone-800 shrink-0"
+                            />
+                          ) : (
+                            <div className="w-10 h-10 rounded-lg bg-stone-800 flex items-center justify-center text-[10px] text-stone-400 shrink-0">
+                              Item
+                            </div>
+                          )}
+                          <div className="truncate">
+                            <p className="font-semibold text-white text-xs truncate">{p.name}</p>
+                            <div className="flex items-center gap-2 text-[10px] text-stone-400 mt-0.5">
+                              <span className="font-mono text-orange-400 font-bold bg-stone-950 px-1.5 py-0.5 rounded border border-stone-800">
+                                {p.barcode}
+                              </span>
+                              <span>{p.category}</span>
+                              <span className="text-emerald-400 font-mono">
+                                ₱{p.sellingPrice.toLocaleString()}
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="shrink-0 flex items-center gap-2">
+                          <span className="text-[10px] text-stone-400 font-mono">
+                            {p.availableQuantity} in stock
+                          </span>
+                          {isSelected && (
+                            <span className="px-2 py-0.5 rounded-lg bg-emerald-500/20 text-emerald-400 font-bold text-[10px] flex items-center gap-1 border border-emerald-500/30">
+                              <Check className="w-3 h-3" />
+                              <span>Active</span>
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+            </div>
+
+            {/* Modal Footer */}
+            <div className="pt-3 border-t border-stone-800 flex items-center justify-between gap-2 shrink-0">
+              {selectedProductFilterId ? (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSelectedProductFilterId(null);
+                    setIsProductFilterModalOpen(false);
+                  }}
+                  className="py-2 px-3.5 rounded-xl border border-red-500/30 bg-red-950/40 hover:bg-red-900/50 text-red-300 font-semibold text-xs transition cursor-pointer flex items-center gap-1.5"
+                >
+                  <X className="w-3.5 h-3.5" />
+                  <span>Clear Active Filter</span>
+                </button>
+              ) : (
+                <span className="text-xs text-stone-500">Click any product to isolate in ledger</span>
+              )}
+              <button
+                type="button"
+                onClick={() => setIsProductFilterModalOpen(false)}
+                className="py-2 px-4 rounded-xl bg-stone-800 hover:bg-stone-700 text-stone-200 text-xs font-semibold transition cursor-pointer"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Confirmation Modal to prevent accidental deletions */}
+      <ConfirmDeleteModal
+        isOpen={Boolean(deleteTarget)}
+        onClose={() => setDeleteTarget(null)}
+        onConfirm={handleConfirmDelete}
+        title={deleteTarget?.title || 'Are you sure you want to delete?'}
+        message={deleteTarget?.message || 'If you clicked this by accident, click Cancel to keep it. This action cannot be undone.'}
+        itemName={deleteTarget?.itemName}
+        itemDetails={deleteTarget?.details}
+        isLoading={isDeleting}
+      />
     </div>
   );
 };

@@ -17,11 +17,18 @@ import {
 interface AuthModalProps {
   isOpen: boolean;
   onClose: () => void;
+  initialTab?: 'login' | 'signup';
 }
 
-export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
+export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, initialTab = 'signup' }) => {
   const { loginAs, signupAs, loginWithGoogleFast, completeGoogleSignUp, currentUser } = useStore();
-  const [tab, setTab] = useState<'login' | 'signup'>('signup');
+  const [tab, setTab] = useState<'login' | 'signup'>(initialTab);
+
+  React.useEffect(() => {
+    if (isOpen && initialTab) {
+      setTab(initialTab);
+    }
+  }, [isOpen, initialTab]);
 
   // Form fields
   const [name, setName] = useState('');
@@ -151,7 +158,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/80 backdrop-blur-md animate-fade-in overflow-y-auto">
-      <div className="relative w-full max-w-lg bg-stone-900/95 border border-orange-500/30 rounded-3xl p-5 sm:p-8 shadow-2xl backdrop-blur-xl text-stone-100 my-auto">
+      <div className="relative w-[95%] sm:w-full max-w-lg bg-stone-900/95 border border-orange-500/30 rounded-3xl p-4 sm:p-7 shadow-2xl backdrop-blur-xl text-stone-100 my-auto max-h-[92vh] overflow-y-auto">
         {/* Close Button */}
         <button
           onClick={onClose}
@@ -461,7 +468,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
               <button
                 type="submit"
                 disabled={isLoading}
-                className="w-full py-3 px-4 rounded-xl bg-gradient-to-r from-orange-600 to-amber-700 hover:from-orange-500 hover:to-amber-600 text-white font-bold text-sm shadow-lg shadow-orange-600/30 transition flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50 mt-2"
+                className="w-full py-3.5 px-4 rounded-xl bg-gradient-to-r from-orange-600 to-amber-700 hover:from-orange-500 hover:to-amber-600 text-white font-bold text-sm shadow-lg shadow-orange-600/30 transition flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50 mt-2 min-h-[44px]"
               >
                 {isLoading ? (
                   <Loader2 className="w-4 h-4 animate-spin" />
@@ -469,9 +476,41 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
                   <ArrowRight className="w-4 h-4" />
                 )}
                 <span>
-                  {tab === 'login' ? 'Sign In' : 'Create & Save Customer Account'}
+                  {tab === 'login' ? 'Sign In to JKsur+' : 'Create & Save Customer Account'}
                 </span>
               </button>
+
+              <div className="text-center pt-2">
+                {tab === 'login' ? (
+                  <p className="text-xs text-stone-400">
+                    Don't have a customer account yet?{' '}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setTab('signup');
+                        setError(null);
+                      }}
+                      className="text-orange-400 hover:text-orange-300 font-bold underline cursor-pointer"
+                    >
+                      Sign Up Here
+                    </button>
+                  </p>
+                ) : (
+                  <p className="text-xs text-stone-400">
+                    Already have an account?{' '}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setTab('login');
+                        setError(null);
+                      }}
+                      className="text-orange-400 hover:text-orange-300 font-bold underline cursor-pointer"
+                    >
+                      Sign In Here
+                    </button>
+                  </p>
+                )}
+              </div>
             </form>
           </>
         )}

@@ -21,8 +21,18 @@ const MainLayout: React.FC = () => {
     return 'showcase';
   });
 
-  const [authModalOpen, setAuthModalOpen] = useState(false);
+  const [authModalState, setAuthModalState] = useState<{
+    isOpen: boolean;
+    initialTab: 'login' | 'signup';
+  }>({
+    isOpen: false,
+    initialTab: 'signup',
+  });
   const [cartDrawerOpen, setCartDrawerOpen] = useState(false);
+
+  const handleOpenAuth = (mode: 'login' | 'signup' = 'signup') => {
+    setAuthModalState({ isOpen: true, initialTab: mode });
+  };
 
   // Automatically direct to role-specific default view when role switches
   useEffect(() => {
@@ -69,12 +79,12 @@ const MainLayout: React.FC = () => {
         <Navbar
           activeTab={activeTab}
           onSelectTab={setActiveTab}
-          onOpenAuth={() => setAuthModalOpen(true)}
+          onOpenAuth={handleOpenAuth}
           onOpenCart={() => setCartDrawerOpen(true)}
         />
 
         {/* Main View Area */}
-        <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 pt-6 pb-20">
+        <main className="flex-1 max-w-7xl w-full mx-auto px-3 sm:px-6 lg:px-8 pt-4 sm:pt-6 pb-20">
           {activeTab === 'dashboard' && currentUser.role === 'owner' && <DashboardView />}
 
           {activeTab === 'inventory' &&
@@ -92,7 +102,7 @@ const MainLayout: React.FC = () => {
             <ShowcaseShopView
               isCartOpen={cartDrawerOpen}
               setIsCartOpen={setCartDrawerOpen}
-              onOpenAuth={() => setAuthModalOpen(true)}
+              onOpenAuth={handleOpenAuth}
             />
           )}
 
@@ -101,7 +111,11 @@ const MainLayout: React.FC = () => {
         </main>
 
         {/* Auth Modal */}
-        <AuthModal isOpen={authModalOpen} onClose={() => setAuthModalOpen(false)} />
+        <AuthModal
+          isOpen={authModalState.isOpen}
+          initialTab={authModalState.initialTab}
+          onClose={() => setAuthModalState((prev) => ({ ...prev, isOpen: false }))}
+        />
       </div>
     </div>
   );

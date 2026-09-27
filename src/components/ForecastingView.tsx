@@ -12,6 +12,7 @@ import {
   RotateCcw,
   Sparkles,
 } from 'lucide-react';
+import { LogItemStatusModal } from './LogItemStatusModal';
 
 export const ForecastingView: React.FC = () => {
   const { orders, transactions, categories, products, itemStatusLogs, logItemStatus } = useStore();
@@ -682,92 +683,11 @@ export const ForecastingView: React.FC = () => {
         </div>
       )}
 
-      {/* Log Return / Damage / Loss Modal */}
-      {logModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-fade-in">
-          <div className="relative w-full max-w-md bg-stone-900 border border-orange-500/30 rounded-3xl p-6 shadow-2xl backdrop-blur-xl text-stone-100">
-            <button
-              onClick={() => setLogModalOpen(false)}
-              className="absolute top-5 right-5 text-stone-400 hover:text-white"
-            >
-              ✕
-            </button>
-
-            <h3 className="text-lg font-bold text-white mb-4">
-              Log Inventory Disposition Event
-            </h3>
-
-            <form onSubmit={handleCreateStatusLog} className="space-y-4 text-xs">
-              <div>
-                <label className="block font-medium text-stone-300 mb-1">Select Product *</label>
-                <select
-                  required
-                  value={logProductId}
-                  onChange={(e) => setLogProductId(e.target.value)}
-                  className="w-full px-3 py-2.5 rounded-xl bg-stone-950 border border-orange-500/20 text-stone-100 focus:outline-none"
-                >
-                  <option value="">Select Product Item</option>
-                  {products.map((p) => (
-                    <option key={p.id} value={p.id}>
-                      {p.name} (In Stock: {p.availableQuantity})
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div>
-                <label className="block font-medium text-stone-300 mb-1">Event Type *</label>
-                <div className="grid grid-cols-3 gap-2">
-                  {(['returned', 'damaged', 'lost'] as const).map((t) => (
-                    <button
-                      key={t}
-                      type="button"
-                      onClick={() => setLogType(t)}
-                      className={`py-2 px-3 rounded-xl border uppercase font-bold text-[11px] capitalize cursor-pointer transition ${
-                        logType === t
-                          ? 'bg-orange-600 text-white border-orange-500'
-                          : 'bg-stone-950 border-stone-800 text-stone-400'
-                      }`}
-                    >
-                      {t}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              <div>
-                <label className="block font-medium text-stone-300 mb-1">Quantity (pcs) *</label>
-                <input
-                  type="number"
-                  min="1"
-                  required
-                  value={logQty}
-                  onChange={(e) => setLogQty(Math.max(1, parseInt(e.target.value) || 1))}
-                  className="w-full px-3 py-2.5 rounded-xl bg-stone-950 border border-orange-500/20 text-stone-100 font-mono focus:outline-none"
-                />
-              </div>
-
-              <div>
-                <label className="block font-medium text-stone-300 mb-1">Reason / Notes</label>
-                <textarea
-                  rows={2}
-                  placeholder="e.g. Size didn't fit, zipper damaged during transit..."
-                  value={logNotes}
-                  onChange={(e) => setLogNotes(e.target.value)}
-                  className="w-full px-3 py-2 rounded-xl bg-stone-950 border border-orange-500/20 text-stone-100 focus:outline-none text-xs"
-                />
-              </div>
-
-              <button
-                type="submit"
-                className="w-full py-3 px-4 rounded-xl bg-gradient-to-r from-orange-600 to-amber-700 text-white font-bold text-xs shadow-md transition cursor-pointer"
-              >
-                Record Disposition & Adjust Stock
-              </button>
-            </form>
-          </div>
-        </div>
-      )}
+      {/* Log Return / Damage / Loss Modal with fast product code/name search */}
+      <LogItemStatusModal
+        isOpen={logModalOpen}
+        onClose={() => setLogModalOpen(false)}
+      />
     </div>
   );
 };

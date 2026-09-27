@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { useStore } from '../context/StoreContext';
 import { Bot, Sparkles, Send, Trash2, ArrowRight, CornerDownLeft } from 'lucide-react';
+import { ConfirmDeleteModal } from './ConfirmDeleteModal';
 
 interface ChatMessage {
   id: string;
@@ -23,6 +24,7 @@ export const AiChatbotView: React.FC = () => {
 
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
+  const [isClearConfirmOpen, setIsClearConfirmOpen] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -109,6 +111,10 @@ export const AiChatbotView: React.FC = () => {
   };
 
   const handleClearChat = () => {
+    setIsClearConfirmOpen(true);
+  };
+
+  const executeClearChat = () => {
     setMessages([
       {
         id: 'welcome-reset',
@@ -117,6 +123,7 @@ export const AiChatbotView: React.FC = () => {
         timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
       },
     ]);
+    setIsClearConfirmOpen(false);
   };
 
   const quickPrompts = [
@@ -245,6 +252,18 @@ export const AiChatbotView: React.FC = () => {
           <Send className="w-3.5 h-3.5" />
         </button>
       </form>
+
+      {/* Confirmation Modal to prevent accidental clearing of chat */}
+      <ConfirmDeleteModal
+        isOpen={isClearConfirmOpen}
+        onClose={() => setIsClearConfirmOpen(false)}
+        onConfirm={executeClearChat}
+        title="Clear Chat Conversation?"
+        message="Are you sure you want to clear your conversation with Hi Im your AI Exins? If you clicked this by accident, click Cancel to keep your conversation."
+        itemName="Active Chat Session"
+        confirmText="Yes, Clear Chat"
+        cancelText="Cancel"
+      />
     </div>
   );
 };

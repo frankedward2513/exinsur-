@@ -2,6 +2,7 @@ import React, { useState, useMemo } from 'react';
 import { useStore } from '../context/StoreContext';
 import { Product, Order } from '../types';
 import { ReceiptModal } from './ReceiptModal';
+import { ConfirmDeleteModal } from './ConfirmDeleteModal';
 import {
   Store,
   Search,
@@ -39,6 +40,7 @@ export const PosView: React.FC = () => {
   // Completed Receipt Modal
   const [completedOrder, setCompletedOrder] = useState<Order | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [itemToRemoveTarget, setItemToRemoveTarget] = useState<Product | null>(null);
 
   // Add product to POS Cart
   const addItemToCart = (prod: Product, qty = 1) => {
@@ -390,8 +392,9 @@ export const PosView: React.FC = () => {
 
                     <button
                       type="button"
-                      onClick={() => handleRemoveItem(product.id)}
-                      className="p-1 rounded-lg text-stone-500 hover:text-red-400"
+                      onClick={() => setItemToRemoveTarget(product)}
+                      className="p-1 rounded-lg text-stone-500 hover:text-red-400 hover:bg-red-500/10 transition cursor-pointer"
+                      title="Remove Item"
                     >
                       <Trash2 className="w-3.5 h-3.5" />
                     </button>
@@ -541,6 +544,31 @@ export const PosView: React.FC = () => {
       {completedOrder && (
         <ReceiptModal order={completedOrder} onClose={() => setCompletedOrder(null)} />
       )}
+
+      {/* Item Removal Confirmation Modal */}
+      <ConfirmDeleteModal
+        isOpen={Boolean(itemToRemoveTarget)}
+        onClose={() => setItemToRemoveTarget(null)}
+        onConfirm={() => {
+          if (itemToRemoveTarget) {
+            handleRemoveItem(itemToRemoveTarget.id);
+            setItemToRemoveTarget(null);
+          }
+        }}
+        title="Remove Item from Cart?"
+        message="Are you sure you want to remove this item from the active POS transaction? If you clicked this by accident, click Cancel to keep it."
+        itemName={itemToRemoveTarget?.name}
+        itemDetails={
+          itemToRemoveTarget
+            ? [
+                { label: 'Barcode', value: itemToRemoveTarget.barcode },
+                { label: 'Price', value: `₱${itemToRemoveTarget.sellingPrice.toLocaleString()}` },
+              ]
+            : undefined
+        }
+        confirmText="Yes, Remove"
+        cancelText="Cancel"
+      />
     </div>
   );
 };

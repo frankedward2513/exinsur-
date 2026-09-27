@@ -12,7 +12,10 @@ import {
   Upload,
   RefreshCw,
   Sparkles,
+  RotateCcw,
 } from 'lucide-react';
+import { LogItemStatusModal } from './LogItemStatusModal';
+import { ConfirmDeleteModal } from './ConfirmDeleteModal';
 
 export const InventoryManagementView: React.FC = () => {
   const {
@@ -33,6 +36,38 @@ export const InventoryManagementView: React.FC = () => {
     updateSupplier,
     deleteSupplier,
   } = useStore();
+
+  const [isLogModalOpen, setIsLogModalOpen] = useState(false);
+
+  // Deletion confirmation state to prevent accidental deletes
+  const [deleteTarget, setDeleteTarget] = useState<{
+    type: 'supplier' | 'category' | 'bale' | 'product';
+    id: string;
+    title: string;
+    message: string;
+    itemName: string;
+    details?: { label: string; value: string | number }[];
+  } | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
+
+  const handleConfirmDelete = async () => {
+    if (!deleteTarget) return;
+    setIsDeleting(true);
+    try {
+      if (deleteTarget.type === 'supplier') {
+        await deleteSupplier(deleteTarget.id);
+      } else if (deleteTarget.type === 'category') {
+        await deleteCategory(deleteTarget.id);
+      } else if (deleteTarget.type === 'bale') {
+        await deleteBale(deleteTarget.id);
+      } else if (deleteTarget.type === 'product') {
+        await deleteProduct(deleteTarget.id);
+      }
+      setDeleteTarget(null);
+    } finally {
+      setIsDeleting(false);
+    }
+  };
 
   // 4 Tabs arranged: Bale Suppliers, Product Categories, Bale Management, Product List
   const [activeTab, setActiveTab] = useState<'suppliers' | 'categories' | 'bales' | 'products'>('suppliers');
@@ -535,7 +570,21 @@ export const InventoryManagementView: React.FC = () => {
                             <Edit2 className="w-3.5 h-3.5" />
                           </button>
                           <button
-                            onClick={() => deleteSupplier(s.id)}
+                            type="button"
+                            onClick={() => {
+                              setDeleteTarget({
+                                type: 'supplier',
+                                id: s.id,
+                                title: 'Delete Supplier?',
+                                message: 'Are you sure you want to delete this supplier? If you clicked this by accident, click Cancel to keep it.',
+                                itemName: s.name,
+                                details: [
+                                  { label: 'Contact Person', value: s.contactPerson || 'None' },
+                                  { label: 'Contact', value: s.phone || s.email || 'N/A' },
+                                  { label: 'Address', value: s.address || 'N/A' },
+                                ],
+                              });
+                            }}
                             className="p-1.5 rounded-lg text-stone-400 hover:text-red-400 hover:bg-red-500/10 transition cursor-pointer"
                             title="Delete Supplier"
                           >
@@ -709,7 +758,20 @@ export const InventoryManagementView: React.FC = () => {
                             <Edit2 className="w-3.5 h-3.5" />
                           </button>
                           <button
-                            onClick={() => deleteCategory(cat.id)}
+                            type="button"
+                            onClick={() => {
+                              setDeleteTarget({
+                                type: 'category',
+                                id: cat.id,
+                                title: 'Delete Product Category?',
+                                message: 'Are you sure you want to delete this category? If you clicked this by accident, click Cancel to keep it.',
+                                itemName: cat.name,
+                                details: [
+                                  { label: 'Current In-Stock Items', value: `${cat.totalInStock || 0} items` },
+                                  { label: 'Description', value: cat.description || 'N/A' },
+                                ],
+                              });
+                            }}
                             className="p-1.5 rounded-lg text-stone-400 hover:text-red-400 hover:bg-red-500/10 transition cursor-pointer"
                             title="Delete Category"
                           >
@@ -1034,7 +1096,22 @@ export const InventoryManagementView: React.FC = () => {
                             <span>Edit</span>
                           </button>
                           <button
-                            onClick={() => deleteBale(b.id)}
+                            type="button"
+                            onClick={() => {
+                              setDeleteTarget({
+                                type: 'bale',
+                                id: b.id,
+                                title: 'Delete Bale Record?',
+                                message: 'Are you sure you want to delete this bale? If you clicked this by accident, click Cancel to keep it.',
+                                itemName: `${b.baleCode} - ${b.baleName}`,
+                                details: [
+                                  { label: 'Category', value: b.category },
+                                  { label: 'Cost Price', value: `₱${b.totalPurchasePrice.toLocaleString()}` },
+                                  { label: 'Total Pieces', value: `${b.quantityPurchase} pcs` },
+                                  { label: 'Supplier', value: b.supplierName },
+                                ],
+                              });
+                            }}
                             className="px-3 py-1.5 rounded-lg bg-red-950/60 text-red-300 text-xs font-semibold flex items-center gap-1 border border-red-500/30 cursor-pointer transition hover:bg-red-900"
                           >
                             <Trash2 className="w-3.5 h-3.5" />
@@ -1151,7 +1228,22 @@ export const InventoryManagementView: React.FC = () => {
                                   <Edit2 className="w-3.5 h-3.5" />
                                 </button>
                                 <button
-                                  onClick={() => deleteBale(b.id)}
+                                  type="button"
+                                  onClick={() => {
+                                    setDeleteTarget({
+                                      type: 'bale',
+                                      id: b.id,
+                                      title: 'Delete Bale Record?',
+                                      message: 'Are you sure you want to delete this bale? If you clicked this by accident, click Cancel to keep it.',
+                                      itemName: `${b.baleCode} - ${b.baleName}`,
+                                      details: [
+                                        { label: 'Category', value: b.category },
+                                        { label: 'Cost Price', value: `₱${b.totalPurchasePrice.toLocaleString()}` },
+                                        { label: 'Total Pieces', value: `${b.quantityPurchase} pcs` },
+                                        { label: 'Supplier', value: b.supplierName },
+                                      ],
+                                    });
+                                  }}
                                   className="p-1.5 rounded-lg bg-red-950/60 hover:bg-red-900 text-red-300 hover:text-white border border-red-500/30 transition cursor-pointer"
                                   title="Delete Bale"
                                 >
@@ -1389,16 +1481,27 @@ export const InventoryManagementView: React.FC = () => {
                 <span className="text-xs text-stone-400">{filteredProductsList.length} items found</span>
               </div>
 
-              {/* Search button / input to find product */}
-              <div className="relative w-full sm:w-72">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-stone-400" />
-                <input
-                  type="text"
-                  placeholder="Search product name, code, bale..."
-                  value={productSearch}
-                  onChange={(e) => setProductSearch(e.target.value)}
-                  className="w-full pl-9 pr-4 py-2.5 sm:py-2 rounded-xl bg-stone-950/80 border border-orange-500/25 text-sm sm:text-xs text-stone-100 focus:outline-none focus:border-orange-500 focus:ring-2 focus:ring-orange-500/25 transition-all duration-200"
-                />
+              <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2.5 w-full sm:w-auto">
+                <button
+                  type="button"
+                  onClick={() => setIsLogModalOpen(true)}
+                  className="py-2.5 px-3.5 rounded-xl bg-stone-900 hover:bg-stone-800 text-orange-400 border border-orange-500/30 text-xs font-bold transition flex items-center justify-center gap-2 cursor-pointer shadow-sm shrink-0"
+                >
+                  <RotateCcw className="w-3.5 h-3.5" />
+                  <span>Log Return / Damage</span>
+                </button>
+
+                {/* Search button / input to find product */}
+                <div className="relative w-full sm:w-72">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-stone-400" />
+                  <input
+                    type="text"
+                    placeholder="Search product name, code, bale..."
+                    value={productSearch}
+                    onChange={(e) => setProductSearch(e.target.value)}
+                    className="w-full pl-9 pr-4 py-2.5 sm:py-2 rounded-xl bg-stone-950/80 border border-orange-500/25 text-sm sm:text-xs text-stone-100 focus:outline-none focus:border-orange-500 focus:ring-2 focus:ring-orange-500/25 transition-all duration-200"
+                  />
+                </div>
               </div>
             </div>
 
@@ -1479,7 +1582,22 @@ export const InventoryManagementView: React.FC = () => {
                             <span>Edit</span>
                           </button>
                           <button
-                            onClick={() => deleteProduct(p.id)}
+                            type="button"
+                            onClick={() => {
+                              setDeleteTarget({
+                                type: 'product',
+                                id: p.id,
+                                title: 'Delete Product?',
+                                message: 'Are you sure you want to delete this product from inventory? If you clicked this by accident, click Cancel to keep it.',
+                                itemName: p.name,
+                                details: [
+                                  { label: 'Item Code / Barcode', value: p.barcode },
+                                  { label: 'Category', value: p.category },
+                                  { label: 'Selling Price', value: `₱${p.sellingPrice.toLocaleString()}` },
+                                  { label: 'In Stock', value: `${p.availableQuantity} pcs` },
+                                ],
+                              });
+                            }}
                             className="px-3 py-1.5 rounded-lg bg-red-950/60 text-red-300 text-xs font-semibold flex items-center gap-1 border border-red-500/30 cursor-pointer transition hover:bg-red-900"
                           >
                             <Trash2 className="w-3.5 h-3.5" />
@@ -1561,7 +1679,22 @@ export const InventoryManagementView: React.FC = () => {
                                 <Edit2 className="w-3.5 h-3.5" />
                               </button>
                               <button
-                                onClick={() => deleteProduct(p.id)}
+                                type="button"
+                                onClick={() => {
+                                  setDeleteTarget({
+                                    type: 'product',
+                                    id: p.id,
+                                    title: 'Delete Product?',
+                                    message: 'Are you sure you want to delete this product from inventory? If you clicked this by accident, click Cancel to keep it.',
+                                    itemName: p.name,
+                                    details: [
+                                      { label: 'Item Code / Barcode', value: p.barcode },
+                                      { label: 'Category', value: p.category },
+                                      { label: 'Selling Price', value: `₱${p.sellingPrice.toLocaleString()}` },
+                                      { label: 'In Stock', value: `${p.availableQuantity} pcs` },
+                                    ],
+                                  });
+                                }}
                                 className="p-1.5 rounded-lg bg-red-950/60 hover:bg-red-900 text-red-300 hover:text-white border border-red-500/30 transition cursor-pointer"
                                 title="Delete Product"
                               >
@@ -1579,6 +1712,24 @@ export const InventoryManagementView: React.FC = () => {
           </div>
         </div>
       )}
+
+      {/* Modal to Log Return, Damaged, or Lost with fast search & category filter */}
+      <LogItemStatusModal
+        isOpen={isLogModalOpen}
+        onClose={() => setIsLogModalOpen(false)}
+      />
+
+      {/* Confirmation Modal to prevent accidental deletions */}
+      <ConfirmDeleteModal
+        isOpen={Boolean(deleteTarget)}
+        onClose={() => setDeleteTarget(null)}
+        onConfirm={handleConfirmDelete}
+        title={deleteTarget?.title || 'Are you sure you want to delete?'}
+        message={deleteTarget?.message || 'If you clicked this by accident, click Cancel to keep it. This action cannot be undone.'}
+        itemName={deleteTarget?.itemName}
+        itemDetails={deleteTarget?.details}
+        isLoading={isDeleting}
+      />
     </div>
   );
 };
