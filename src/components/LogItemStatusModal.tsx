@@ -5,12 +5,7 @@ import {
   X,
   Search,
   CheckCircle,
-  Filter,
-  RotateCcw,
-  AlertTriangle,
   HelpCircle,
-  Layers,
-  Sparkles,
   Plus,
   Minus,
 } from 'lucide-react';
@@ -29,7 +24,7 @@ export const LogItemStatusModal: React.FC<LogItemStatusModalProps> = ({
   const { products, categories, logItemStatus } = useStore();
 
   const [selectedProductId, setSelectedProductId] = useState<string>(preselectedProductId || '');
-  const [logType, setLogType] = useState<'returned' | 'damaged' | 'lost'>('returned');
+  const logType: 'lost' = 'lost';
   const [logQty, setLogQty] = useState<number>(1);
   const [logNotes, setLogNotes] = useState<string>('');
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -94,7 +89,7 @@ export const LogItemStatusModal: React.FC<LogItemStatusModalProps> = ({
       setLogQty(1);
       onClose();
     } catch (err) {
-      console.error('Error logging item disposition:', err);
+      console.error('Error logging lost item:', err);
     } finally {
       setIsSubmitting(false);
     }
@@ -102,19 +97,19 @@ export const LogItemStatusModal: React.FC<LogItemStatusModalProps> = ({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/80 backdrop-blur-md animate-fade-in overflow-y-auto">
-      <div className="relative w-full max-w-2xl bg-stone-900/95 border border-orange-500/30 rounded-3xl p-5 sm:p-7 shadow-2xl backdrop-blur-xl text-stone-100 my-auto max-h-[92vh] flex flex-col">
+      <div className="relative w-full max-w-2xl bg-stone-900/95 border border-purple-500/30 rounded-3xl p-5 sm:p-7 shadow-2xl backdrop-blur-xl text-stone-100 my-auto max-h-[92vh] flex flex-col">
         {/* Header */}
-        <div className="flex items-center justify-between pb-3.5 border-b border-orange-500/20 shrink-0">
+        <div className="flex items-center justify-between pb-3.5 border-b border-purple-500/20 shrink-0">
           <div>
-            <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-orange-500/10 border border-orange-500/30 text-orange-400 text-[11px] font-semibold uppercase tracking-wider mb-1">
-              <RotateCcw className="w-3 h-3" />
-              <span>Inventory Reconciliation</span>
+            <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-purple-500/10 border border-purple-500/30 text-purple-400 text-[11px] font-semibold uppercase tracking-wider mb-1">
+              <HelpCircle className="w-3 h-3" />
+              <span>Lost Item Tracking</span>
             </div>
             <h3 className="text-lg sm:text-xl font-black text-white">
-              Log Return, Damaged, or Lost Item
+              Log Lost Item
             </h3>
             <p className="text-xs text-stone-400">
-              Filter by product code or name to quickly adjust stock & calculate net sales
+              Record missing or lost inventory to deduct stock and maintain accurate records
             </p>
           </div>
           <button
@@ -313,53 +308,24 @@ export const LogItemStatusModal: React.FC<LogItemStatusModalProps> = ({
             )}
           </div>
 
-          {/* 2. EVENT TYPE */}
+          {/* 2. EVENT TYPE: LOST */}
           <div>
             <label className="block text-xs font-bold text-stone-200 uppercase tracking-wider mb-2">
-              2. Select Disposition Type *
+              2. Disposition Type
             </label>
-            <div className="grid grid-cols-3 gap-2">
-              <button
-                type="button"
-                onClick={() => setLogType('returned')}
-                className={`p-3 rounded-2xl border text-center transition cursor-pointer flex flex-col items-center justify-center gap-1 ${
-                  logType === 'returned'
-                    ? 'bg-amber-600/20 border-amber-500 text-amber-400 shadow-md ring-1 ring-amber-500/50'
-                    : 'bg-stone-950 border-stone-800 text-stone-400 hover:text-stone-200'
-                }`}
-              >
-                <RotateCcw className="w-5 h-5 text-amber-400" />
-                <span className="font-bold text-xs">Returned</span>
-                <span className="text-[10px] text-stone-400">+Restores Stock</span>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => setLogType('damaged')}
-                className={`p-3 rounded-2xl border text-center transition cursor-pointer flex flex-col items-center justify-center gap-1 ${
-                  logType === 'damaged'
-                    ? 'bg-rose-600/20 border-rose-500 text-rose-400 shadow-md ring-1 ring-rose-500/50'
-                    : 'bg-stone-950 border-stone-800 text-stone-400 hover:text-stone-200'
-                }`}
-              >
-                <AlertTriangle className="w-5 h-5 text-rose-400" />
-                <span className="font-bold text-xs">Damaged</span>
-                <span className="text-[10px] text-stone-400">-Deducts Stock</span>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => setLogType('lost')}
-                className={`p-3 rounded-2xl border text-center transition cursor-pointer flex flex-col items-center justify-center gap-1 ${
-                  logType === 'lost'
-                    ? 'bg-purple-600/20 border-purple-500 text-purple-400 shadow-md ring-1 ring-purple-500/50'
-                    : 'bg-stone-950 border-stone-800 text-stone-400 hover:text-stone-200'
-                }`}
-              >
-                <HelpCircle className="w-5 h-5 text-purple-400" />
-                <span className="font-bold text-xs">Lost</span>
-                <span className="text-[10px] text-stone-400">-Deducts Stock</span>
-              </button>
+            <div className="p-3.5 rounded-2xl bg-purple-950/30 border border-purple-500/40 flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="p-2 rounded-xl bg-purple-500/20 text-purple-400">
+                  <HelpCircle className="w-5 h-5" />
+                </div>
+                <div>
+                  <span className="font-bold text-sm text-purple-300">Lost Item</span>
+                  <p className="text-[11px] text-stone-400">Automatically deducts stock from inventory</p>
+                </div>
+              </div>
+              <span className="text-xs font-mono font-bold text-purple-400 bg-purple-900/40 px-2.5 py-1 rounded-lg border border-purple-500/30">
+                -Deducts Stock
+              </span>
             </div>
           </div>
 
@@ -397,11 +363,11 @@ export const LogItemStatusModal: React.FC<LogItemStatusModalProps> = ({
 
             <div>
               <label className="block text-xs font-bold text-stone-200 uppercase tracking-wider mb-1.5">
-                Reason / Customer Note
+                Reason / Loss Note
               </label>
               <input
                 type="text"
-                placeholder="e.g. Size exchange, seam tear, courier transit..."
+                placeholder="e.g. Missing from store rack, transit loss, miscount..."
                 value={logNotes}
                 onChange={(e) => setLogNotes(e.target.value)}
                 className="w-full py-2.5 px-3 rounded-xl bg-stone-950 border border-orange-500/25 text-stone-100 placeholder:text-stone-500 text-xs focus:outline-none focus:border-orange-500"
@@ -413,10 +379,10 @@ export const LogItemStatusModal: React.FC<LogItemStatusModalProps> = ({
           <button
             type="submit"
             disabled={!selectedProductId || isSubmitting}
-            className="w-full py-3.5 px-4 rounded-2xl bg-gradient-to-r from-orange-600 to-amber-700 hover:from-orange-500 hover:to-amber-600 text-white font-bold text-xs sm:text-sm shadow-lg shadow-orange-600/30 transition flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50 mt-3"
+            className="w-full py-3.5 px-4 rounded-2xl bg-gradient-to-r from-purple-600 to-indigo-700 hover:from-purple-500 hover:to-indigo-600 text-white font-bold text-xs sm:text-sm shadow-lg shadow-purple-600/30 transition flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50 mt-3"
           >
-            <CheckCircle className="w-4 h-4" />
-            <span>Record Disposition & Adjust Stock</span>
+            <HelpCircle className="w-4 h-4" />
+            <span>Confirm & Log Lost Item</span>
           </button>
         </form>
       </div>

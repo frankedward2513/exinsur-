@@ -4,7 +4,6 @@ import { Product, Order } from '../types';
 import { ReceiptModal } from './ReceiptModal';
 import { ConfirmDeleteModal } from './ConfirmDeleteModal';
 import {
-  Store,
   Search,
   Barcode,
   ShoppingBag,
@@ -17,6 +16,7 @@ import {
   CheckCircle,
   AlertCircle,
   Tag,
+  Sparkles,
 } from 'lucide-react';
 
 export const PosView: React.FC = () => {
@@ -25,9 +25,6 @@ export const PosView: React.FC = () => {
   // Fast type-in barcode / product code input (no scanner needed)
   const [codeInput, setCodeInput] = useState('');
   const [codeMessage, setCodeMessage] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
-
-  // Search product grid
-  const [searchCatalog, setSearchCatalog] = useState('');
 
   // POS Cart State
   const [posCart, setPosCart] = useState<{ product: Product; quantity: number }[]>([]);
@@ -171,49 +168,61 @@ export const PosView: React.FC = () => {
     }
   };
 
-  const filteredCatalog = useMemo(() => {
-    return products.filter(
-      (p) =>
-        p.name.toLowerCase().includes(searchCatalog.toLowerCase()) ||
-        p.category?.toLowerCase().includes(searchCatalog.toLowerCase()) ||
-        p.barcode?.toLowerCase().includes(searchCatalog.toLowerCase())
-    );
-  }, [products, searchCatalog]);
+  // Real-time matching products while typing barcode or name
+  const matchingProducts = useMemo(() => {
+    if (!codeInput.trim()) return [];
+    const q = codeInput.trim().toLowerCase();
+    return products
+      .filter(
+        (p) =>
+          (p.barcode && p.barcode.toLowerCase().includes(q)) ||
+          p.name.toLowerCase().includes(q) ||
+          p.id.toLowerCase().includes(q)
+      )
+      .slice(0, 5);
+  }, [products, codeInput]);
 
   return (
     <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 animate-fade-in pb-16">
-      {/* LEFT: Shop Catalog & Direct Code Entry (7 cols) */}
-      <div className="lg:col-span-7 space-y-6">
+      {/* LEFT: Direct Code Entry & Quick Terminal Tools (5 cols) */}
+      <div className="lg:col-span-5 space-y-5">
         {/* Type-in Code Input Box (NO NEED FOR SCANNER) */}
-        <div className="p-6 rounded-3xl glass-panel space-y-3">
+        <div className="p-6 rounded-3xl glass-panel space-y-4 border border-orange-500/30">
           <div className="flex items-center justify-between pb-2 border-b border-orange-500/20">
             <h2 className="text-base font-bold text-white flex items-center gap-2">
               <Barcode className="w-5 h-5 text-orange-400" />
               <span>Type-in Product Code (Instant Add)</span>
             </h2>
-            <span className="text-[11px] text-stone-400 font-mono">No scanner needed</span>
+            <span className="text-[11px] text-stone-400 font-mono">Press Enter</span>
           </div>
 
-          <form onSubmit={handleCodeSubmit} className="flex gap-2">
-            <div className="relative flex-1">
-              <Barcode className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-stone-400" />
-              <input
-                type="text"
-                placeholder="Type product code (e.g. EX-123456) and press Enter..."
-                value={codeInput}
-                onChange={(e) => {
-                  setCodeInput(e.target.value);
-                  setCodeMessage(null);
-                }}
-                className="w-full pl-10 pr-4 py-3 rounded-xl bg-stone-950 border border-orange-500/30 text-stone-100 placeholder:text-stone-500 text-sm focus:border-orange-500 focus:outline-none font-mono"
-              />
+          <p className="text-xs text-stone-400">
+            Type any barcode (e.g. EX-123456) or product name and press <strong>Enter</strong> to instantly add to the bag.
+          </p>
+
+          <form onSubmit={handleCodeSubmit} className="space-y-3">
+            <div className="flex gap-2">
+              <div className="relative flex-1">
+                <Barcode className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-stone-400" />
+                <input
+                  type="text"
+                  placeholder="Enter barcode or name..."
+                  value={codeInput}
+                  onChange={(e) => {
+                    setCodeInput(e.target.value);
+                    setCodeMessage(null);
+                  }}
+                  className="w-full pl-10 pr-4 py-3 rounded-xl bg-stone-950 border border-orange-500/30 text-stone-100 placeholder:text-stone-500 text-sm focus:border-orange-500 focus:outline-none font-mono"
+                  autoFocus
+                />
+              </div>
+              <button
+                type="submit"
+                className="py-3 px-5 rounded-xl bg-gradient-to-r from-orange-600 to-amber-700 hover:from-orange-500 hover:to-amber-600 text-white font-bold text-xs shadow-md transition cursor-pointer active:scale-95 shrink-0"
+              >
+                Add Item
+              </button>
             </div>
-            <button
-              type="submit"
-              className="py-3 px-5 rounded-xl bg-gradient-to-r from-orange-600 to-amber-700 hover:from-orange-500 hover:to-amber-600 text-white font-bold text-xs shadow-md transition cursor-pointer"
-            >
-              Add Item
-            </button>
           </form>
 
           {codeMessage && (
@@ -225,93 +234,80 @@ export const PosView: React.FC = () => {
               }`}
             >
               {codeMessage.type === 'success' ? (
-                <CheckCircle className="w-4 h-4 text-emerald-400" />
+                <CheckCircle className="w-4 h-4 text-emerald-400 shrink-0" />
               ) : (
-                <AlertCircle className="w-4 h-4 text-rose-400" />
+                <AlertCircle className="w-4 h-4 text-rose-400 shrink-0" />
               )}
               <span>{codeMessage.text}</span>
             </div>
           )}
-        </div>
 
-        {/* Quick Item Selection Catalog */}
-        <div className="p-6 rounded-3xl glass-panel space-y-4">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-2 border-b border-orange-500/20">
-            <h3 className="text-base font-bold text-white flex items-center gap-2">
-              <Store className="w-5 h-5 text-orange-400" />
-              <span>Store Product Tiles (Click to Add)</span>
-            </h3>
-
-            <div className="relative w-full sm:w-60">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-stone-400" />
-              <input
-                type="text"
-                placeholder="Search items..."
-                value={searchCatalog}
-                onChange={(e) => setSearchCatalog(e.target.value)}
-                className="w-full pl-9 pr-3 py-1.5 rounded-xl bg-stone-950 border border-orange-500/20 text-xs text-stone-100 focus:outline-none focus:border-orange-500"
-              />
-            </div>
-          </div>
-
-          {filteredCatalog.length === 0 ? (
-            <p className="text-center py-8 text-xs text-stone-400">
-              No products found. List items in Inventory Management first!
-            </p>
-          ) : (
-            <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 max-h-[520px] overflow-y-auto pr-1">
-              {filteredCatalog.map((product) => {
-                const isOut = product.availableQuantity <= 0;
-                return (
-                  <button
-                    key={product.id}
-                    type="button"
-                    disabled={isOut}
-                    onClick={() => addItemToCart(product, 1)}
-                    className={`p-3 rounded-2xl border text-left flex flex-col justify-between transition group cursor-pointer ${
-                      isOut
-                        ? 'bg-stone-950/40 border-stone-800 opacity-50 cursor-not-allowed'
-                        : 'bg-stone-950/70 border-orange-500/20 hover:border-orange-500 hover:bg-stone-900 shadow-sm'
-                    }`}
-                  >
-                    <div className="space-y-1.5 w-full">
-                      {product.imageUrl ? (
-                        <img
-                          src={product.imageUrl}
-                          alt={product.name}
-                          className="w-full h-24 object-cover rounded-xl bg-stone-900 mb-1"
-                        />
-                      ) : (
-                        <div className="w-full h-24 rounded-xl bg-stone-900 flex items-center justify-center text-[10px] text-stone-500 mb-1">
-                          Apparel
+          {/* Real-time Match Suggestions while typing */}
+          {codeInput.trim().length > 0 && matchingProducts.length > 0 && (
+            <div className="space-y-2 pt-2 border-t border-stone-800">
+              <span className="text-[11px] font-semibold uppercase text-stone-400">
+                Matching Catalog ({matchingProducts.length}):
+              </span>
+              <div className="space-y-1.5 max-h-56 overflow-y-auto pr-1">
+                {matchingProducts.map((p) => {
+                  const isOutOfStock = p.availableQuantity <= 0;
+                  return (
+                    <div
+                      key={p.id}
+                      className="p-2.5 rounded-xl bg-stone-950/70 border border-stone-800 flex items-center justify-between gap-2 text-xs hover:border-orange-500/40 transition"
+                    >
+                      <div className="min-w-0">
+                        <div className="font-bold text-white truncate">{p.name}</div>
+                        <div className="text-[10px] text-stone-400 font-mono flex items-center gap-2">
+                          <span className="text-orange-400 font-bold">₱{p.sellingPrice.toLocaleString()}</span>
+                          <span>•</span>
+                          <span>SKU: {p.barcode}</span>
+                          <span>•</span>
+                          <span className={isOutOfStock ? 'text-rose-400' : 'text-emerald-400'}>
+                            Stock: {p.availableQuantity}
+                          </span>
                         </div>
-                      )}
-                      <p className="text-xs font-bold text-white truncate group-hover:text-orange-300">
-                        {product.name}
-                      </p>
-                      <p className="text-[10px] text-stone-400">
-                        Size: {product.size || 'M'} • Stock: {product.availableQuantity}
-                      </p>
+                      </div>
+                      <button
+                        type="button"
+                        disabled={isOutOfStock}
+                        onClick={() => {
+                          addItemToCart(p, 1);
+                          setCodeInput('');
+                        }}
+                        className={`py-1.5 px-3 rounded-lg text-xs font-bold transition shrink-0 cursor-pointer ${
+                          isOutOfStock
+                            ? 'bg-stone-800 text-stone-500 cursor-not-allowed'
+                            : 'bg-orange-500 hover:bg-orange-400 text-stone-950 shadow-sm'
+                        }`}
+                      >
+                        + Add
+                      </button>
                     </div>
-
-                    <div className="pt-2 border-t border-stone-800/80 flex items-center justify-between w-full mt-2">
-                      <span className="font-mono text-xs font-bold text-orange-400">
-                        ₱{product.sellingPrice.toLocaleString()}
-                      </span>
-                      <span className="text-[10px] px-2 py-0.5 rounded bg-orange-500/20 text-orange-400 font-mono">
-                        +{product.barcode}
-                      </span>
-                    </div>
-                  </button>
-                );
-              })}
+                  );
+                })}
+              </div>
             </div>
           )}
         </div>
+
+        {/* Quick Cashier Guide */}
+        <div className="p-5 rounded-3xl glass-panel space-y-3 text-xs text-stone-400 border border-stone-800">
+          <h4 className="font-bold text-white flex items-center gap-2 text-xs uppercase tracking-wider">
+            <CheckCircle className="w-4 h-4 text-orange-400" />
+            <span>Fast POS Checkout Guide</span>
+          </h4>
+          <ul className="space-y-1.5 list-disc list-inside text-[11px] leading-relaxed">
+            <li>Type any product barcode number or product name and press <strong>Enter</strong>.</li>
+            <li>Adjust quantities or remove items directly in the cart bag.</li>
+            <li>Choose <strong>Cash</strong> or <strong>GCash</strong>, enter tendered amount, and change will auto-compute.</li>
+            <li>Click <strong>Confirm Transaction</strong> to deduct stock and generate an official receipt.</li>
+          </ul>
+        </div>
       </div>
 
-      {/* RIGHT: Current Cart Bag & Register Terminal (5 cols) */}
-      <div className="lg:col-span-5 space-y-5">
+      {/* RIGHT: Current Cart Bag & Register Terminal (7 cols) */}
+      <div className="lg:col-span-7 space-y-5">
         <div className="p-6 rounded-3xl glass-panel space-y-4 border border-orange-500/30">
           <div className="flex items-center justify-between pb-3 border-b border-orange-500/20">
             <div className="flex items-center gap-2">
@@ -338,12 +334,12 @@ export const PosView: React.FC = () => {
           </div>
 
           {/* List All Items */}
-          <div className="space-y-2 max-h-56 overflow-y-auto pr-1">
+          <div className="space-y-2 max-h-72 overflow-y-auto pr-1">
             {posCart.length === 0 ? (
-              <div className="text-center py-10 text-stone-400 text-xs space-y-2">
+              <div className="text-center py-12 text-stone-400 text-xs space-y-2">
                 <ShoppingBag className="w-8 h-8 mx-auto opacity-30 text-orange-400" />
-                <p>Bag is currently empty.</p>
-                <p>Type in product code above or click on tiles.</p>
+                <p className="font-semibold text-stone-300">Bag is currently empty.</p>
+                <p>Type product code or name on the left and press Enter.</p>
               </div>
             ) : (
               posCart.map(({ product, quantity }) => (

@@ -13,6 +13,7 @@ import {
   RefreshCw,
   Sparkles,
   RotateCcw,
+  HelpCircle,
 } from 'lucide-react';
 import { LogItemStatusModal } from './LogItemStatusModal';
 import { ConfirmDeleteModal } from './ConfirmDeleteModal';
@@ -1485,10 +1486,10 @@ export const InventoryManagementView: React.FC = () => {
                 <button
                   type="button"
                   onClick={() => setIsLogModalOpen(true)}
-                  className="py-2.5 px-3.5 rounded-xl bg-stone-900 hover:bg-stone-800 text-orange-400 border border-orange-500/30 text-xs font-bold transition flex items-center justify-center gap-2 cursor-pointer shadow-sm shrink-0"
+                  className="py-2.5 px-3.5 rounded-xl bg-stone-900 hover:bg-stone-800 text-purple-400 border border-purple-500/30 text-xs font-bold transition flex items-center justify-center gap-2 cursor-pointer shadow-sm shrink-0"
                 >
-                  <RotateCcw className="w-3.5 h-3.5" />
-                  <span>Log Return / Damage</span>
+                  <HelpCircle className="w-3.5 h-3.5" />
+                  <span>Log Lost Item</span>
                 </button>
 
                 {/* Search button / input to find product */}

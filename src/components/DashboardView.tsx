@@ -66,7 +66,7 @@ export const DashboardView: React.FC = () => {
     // 1. New Orders
     const newOrders = filteredData.orders.length;
 
-    // 2. Total Sales (Inflows from transactions and completed orders)
+    // 2. Total Sales (Inflows from transactions; fallback to orders if no transactions exist)
     const totalSalesFromTx = filteredData.transactions
       .filter((t) => t.flowType === 'inflow')
       .reduce((sum, t) => sum + (t.inflow || 0), 0);
@@ -75,15 +75,15 @@ export const DashboardView: React.FC = () => {
       .filter((o) => o.status !== 'cancelled')
       .reduce((sum, o) => sum + o.totalAmount, 0);
 
-    const totalSales = Math.max(totalSalesFromTx, totalSalesFromOrders);
+    const totalSales = transactions.length > 0 ? totalSalesFromTx : totalSalesFromOrders;
 
-    // 3. Total Expenses (Outflows)
+    // 3. Total Expenses (Outflows from transactions; fallback to expenses list if no transactions exist)
     const totalExpensesFromTx = filteredData.transactions
       .filter((t) => t.flowType === 'outflow')
       .reduce((sum, t) => sum + (t.outflow || 0), 0);
 
     const totalExpensesFromList = filteredData.expenses.reduce((sum, e) => sum + e.amount, 0);
-    const totalExpenses = Math.max(totalExpensesFromTx, totalExpensesFromList);
+    const totalExpenses = transactions.length > 0 ? totalExpensesFromTx : totalExpensesFromList;
 
     // 4. Gross Profit (Sales - Cost of Goods Sold)
     let cogs = 0;

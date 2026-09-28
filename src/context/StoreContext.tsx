@@ -157,6 +157,16 @@ interface StoreContextType {
     notes?: string;
     adjustStock?: boolean;
   }) => Promise<void>;
+  updateItemStatusLog: (
+    id: string,
+    updates: Partial<ItemStatusLog>,
+    options?: {
+      restoreStock?: boolean;
+      productId?: string;
+      quantityToRestore?: number;
+    }
+  ) => Promise<void>;
+  deleteItemStatusLog: (id: string) => Promise<void>;
 }
 
 const StoreContext = createContext<StoreContextType | undefined>(undefined);
@@ -623,11 +633,10 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     const unsubExpenses = onSnapshot(
       query(collection(db, 'expenses')),
       (snapshot) => {
-        if (!snapshot.empty) {
-          const loaded: Expense[] = [];
-          snapshot.forEach((d) => loaded.push({ ...(d.data() as Expense), id: d.id }));
-          setExpenses(loaded);
-        }
+        const loaded: Expense[] = [];
+        snapshot.forEach((d) => loaded.push({ ...(d.data() as Expense), id: d.id }));
+        setExpenses(loaded);
+        localStorage.setItem('exins_expenses', JSON.stringify(loaded));
       },
       (error) => handleFirestoreError(error, OperationType.LIST, 'expenses')
     );
@@ -635,11 +644,10 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     const unsubOrders = onSnapshot(
       query(collection(db, 'orders')),
       (snapshot) => {
-        if (!snapshot.empty) {
-          const loaded: Order[] = [];
-          snapshot.forEach((d) => loaded.push({ ...(d.data() as Order), id: d.id }));
-          setOrders(loaded);
-        }
+        const loaded: Order[] = [];
+        snapshot.forEach((d) => loaded.push({ ...(d.data() as Order), id: d.id }));
+        setOrders(loaded);
+        localStorage.setItem('exins_orders', JSON.stringify(loaded));
       },
       (error) => handleFirestoreError(error, OperationType.LIST, 'orders')
     );
@@ -647,11 +655,10 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     const unsubTransactions = onSnapshot(
       query(collection(db, 'transactions')),
       (snapshot) => {
-        if (!snapshot.empty) {
-          const loaded: Transaction[] = [];
-          snapshot.forEach((d) => loaded.push({ ...(d.data() as Transaction), id: d.id }));
-          setTransactions(loaded);
-        }
+        const loaded: Transaction[] = [];
+        snapshot.forEach((d) => loaded.push({ ...(d.data() as Transaction), id: d.id }));
+        setTransactions(loaded);
+        localStorage.setItem('exins_transactions', JSON.stringify(loaded));
       },
       (error) => handleFirestoreError(error, OperationType.LIST, 'transactions')
     );
@@ -741,6 +748,29 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       })
     );
   }, [products, expenses, bales]);
+
+  // Auto-reconcile orphaned orders: if transactions exist but an order's transaction was deleted, purge that order from DB and state
+  useEffect(() => {
+    if (transactions.length > 0 && orders.length > 0) {
+      const orphanedOrders = orders.filter((o) => {
+        const hasTx = transactions.some(
+          (t) => t.orderId === o.id || (t.description && t.description.includes(o.orderNumber))
+        );
+        return !hasTx;
+      });
+
+      if (orphanedOrders.length > 0) {
+        setOrders((prev) => {
+          const next = prev.filter((o) => !orphanedOrders.some((orph) => orph.id === o.id));
+          localStorage.setItem('exins_orders', JSON.stringify(next));
+          return next;
+        });
+        orphanedOrders.forEach((o) => {
+          deleteDoc(doc(db, 'orders', o.id)).catch(console.warn);
+        });
+      }
+    }
+  }, [transactions, orders]);
 
   // Cart operations
   const addToCart = (product: Product, quantity = 1) => {
@@ -1061,11 +1091,27 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   };
 
   const deleteExpense = async (id: string) => {
-    setExpenses((prev) => prev.filter((e) => e.id !== id));
-    setTransactions((prev) => prev.filter((t) => t.expenseId !== id));
+    const matchingTx = transactions.find(
+      (t) => t.expenseId === id || (t.flowType === 'outflow' && t.account === id)
+    );
+    setExpenses((prev) => {
+      const next = prev.filter((e) => e.id !== id);
+      localStorage.setItem('exins_expenses', JSON.stringify(next));
+      return next;
+    });
+    if (matchingTx) {
+      setTransactions((prev) => {
+        const next = prev.filter((t) => t.id !== matchingTx.id);
+        localStorage.setItem('exins_transactions', JSON.stringify(next));
+        return next;
+      });
+    }
 
     try {
       await deleteDoc(doc(db, 'expenses', id));
+      if (matchingTx) {
+        await deleteDoc(doc(db, 'transactions', matchingTx.id)).catch(console.warn);
+      }
     } catch (err) {
       handleFirestoreError(err, OperationType.DELETE, `expenses/${id}`);
     }
@@ -1089,9 +1135,67 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   };
 
   const deleteTransaction = async (id: string) => {
-    setTransactions((prev) => prev.filter((t) => t.id !== id));
+    const targetTx = transactions.find((t) => t.id === id);
+
+    // 1. Remove from local transactions state immediately
+    setTransactions((prev) => {
+      const next = prev.filter((t) => t.id !== id);
+      localStorage.setItem('exins_transactions', JSON.stringify(next));
+      return next;
+    });
+
     try {
+      // 2. Delete transaction document from Firestore database
       await deleteDoc(doc(db, 'transactions', id));
+
+      // 3. If linked to an order, delete order document from Firestore database and state
+      const linkedOrderId = targetTx?.orderId;
+      if (linkedOrderId) {
+        setOrders((prev) => {
+          const next = prev.filter((o) => o.id !== linkedOrderId);
+          localStorage.setItem('exins_orders', JSON.stringify(next));
+          return next;
+        });
+        await deleteDoc(doc(db, 'orders', linkedOrderId)).catch(console.warn);
+      } else if (targetTx?.description) {
+        // Fallback match: check if order number or order id is mentioned in description
+        const matchedOrder = orders.find(
+          (o) => targetTx.description.includes(o.orderNumber) || targetTx.description.includes(o.id)
+        );
+        if (matchedOrder) {
+          setOrders((prev) => {
+            const next = prev.filter((o) => o.id !== matchedOrder.id);
+            localStorage.setItem('exins_orders', JSON.stringify(next));
+            return next;
+          });
+          await deleteDoc(doc(db, 'orders', matchedOrder.id)).catch(console.warn);
+        }
+      }
+
+      // 4. If linked to an expense, delete expense document from Firestore database and state
+      const linkedExpenseId = targetTx?.expenseId;
+      if (linkedExpenseId) {
+        setExpenses((prev) => {
+          const next = prev.filter((e) => e.id !== linkedExpenseId);
+          localStorage.setItem('exins_expenses', JSON.stringify(next));
+          return next;
+        });
+        await deleteDoc(doc(db, 'expenses', linkedExpenseId)).catch(console.warn);
+      } else if (targetTx?.flowType === 'outflow') {
+        const matchedExp = expenses.find(
+          (e) =>
+            (targetTx.account && e.accountName === targetTx.account && e.amount === targetTx.outflow) ||
+            (targetTx.description && targetTx.description.includes(e.id))
+        );
+        if (matchedExp) {
+          setExpenses((prev) => {
+            const next = prev.filter((e) => e.id !== matchedExp.id);
+            localStorage.setItem('exins_expenses', JSON.stringify(next));
+            return next;
+          });
+          await deleteDoc(doc(db, 'expenses', matchedExp.id)).catch(console.warn);
+        }
+      }
     } catch (err) {
       handleFirestoreError(err, OperationType.DELETE, `transactions/${id}`);
     }
@@ -1401,6 +1505,54 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     }
   };
 
+  // Update Item Status Log (e.g. mark lost item as found, update notes, restore stock)
+  const updateItemStatusLog = async (
+    id: string,
+    updates: Partial<ItemStatusLog>,
+    options?: {
+      restoreStock?: boolean;
+      productId?: string;
+      quantityToRestore?: number;
+    }
+  ) => {
+    setItemStatusLogs((prev) =>
+      prev.map((log) => (log.id === id ? { ...log, ...updates } : log))
+    );
+
+    try {
+      await updateDoc(doc(db, 'item_logs', id), cleanFirestoreData(updates));
+    } catch (err) {
+      handleFirestoreError(err, OperationType.UPDATE, `item_logs/${id}`);
+    }
+
+    if (
+      options?.restoreStock &&
+      options?.productId &&
+      options?.quantityToRestore &&
+      options.quantityToRestore > 0
+    ) {
+      setProducts((prev) =>
+        prev.map((p) => {
+          if (p.id === options.productId) {
+            const restored = (p.availableQuantity || 0) + options.quantityToRestore!;
+            updateProduct(p.id, { availableQuantity: restored });
+            return { ...p, availableQuantity: restored };
+          }
+          return p;
+        })
+      );
+    }
+  };
+
+  const deleteItemStatusLog = async (id: string) => {
+    setItemStatusLogs((prev) => prev.filter((log) => log.id !== id));
+    try {
+      await deleteDoc(doc(db, 'item_logs', id));
+    } catch (err) {
+      handleFirestoreError(err, OperationType.DELETE, `item_logs/${id}`);
+    }
+  };
+
   return (
     <StoreContext.Provider
       value={{
@@ -1456,6 +1608,8 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         cancelOrder,
         completePosSale,
         logItemStatus,
+        updateItemStatusLog,
+        deleteItemStatusLog,
       }}
     >
       {children}

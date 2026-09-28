@@ -162,4 +162,8 @@ export interface ItemStatusLog {
   date: string;
   notes?: string;
   createdAt: string;
+  status?: 'lost' | 'found' | 'resolved';
+  foundQuantity?: number;
+  foundDate?: string;
+  foundNotes?: string;
 }

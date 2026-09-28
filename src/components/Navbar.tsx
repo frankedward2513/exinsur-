@@ -127,22 +127,8 @@ export const Navbar: React.FC<NavbarProps> = ({
             })}
           </div>
 
-          {/* Right Action Icons: Cart, Dark Mode, Profile */}
+          {/* Right Action Icons: Dark Mode, Profile */}
           <div className="flex items-center gap-1.5 sm:gap-3">
-            {/* Bag Button */}
-            <button
-              onClick={onOpenCart}
-              title="Shopping Bag"
-              className="relative p-2 sm:p-2.5 rounded-xl bg-stone-900/80 border border-orange-500/20 hover:border-orange-500/50 text-stone-200 hover:text-orange-400 transition cursor-pointer shrink-0"
-            >
-              <ShoppingBag className="w-4 h-4 sm:w-5 sm:h-5" />
-              {cartItemCount > 0 && (
-                <span className="absolute -top-1.5 -right-1.5 min-w-[18px] sm:min-w-[20px] h-4 sm:h-5 px-1 rounded-full bg-orange-600 text-white text-[10px] sm:text-[11px] font-bold flex items-center justify-center shadow-md animate-pulse">
-                  {cartItemCount}
-                </span>
-              )}
-            </button>
-
             {/* Dark / Light Toggle */}
             <button
               onClick={toggleDarkMode}

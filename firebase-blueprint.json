@@ -160,6 +160,25 @@
         "createdAt": { "type": "string" }
       },
       "required": ["uid", "email", "displayName", "role"]
+    },
+    "ItemStatusLog": {
+      "title": "ItemStatusLog",
+      "description": "Item disposition status log including lost and found resolutions",
+      "type": "object",
+      "properties": {
+        "productId": { "type": "string", "maxLength": 64 },
+        "productName": { "type": "string", "maxLength": 128 },
+        "type": { "type": "string", "enum": ["sold", "returned", "damaged", "lost"] },
+        "quantity": { "type": "number" },
+        "date": { "type": "string", "maxLength": 32 },
+        "notes": { "type": "string", "maxLength": 500 },
+        "status": { "type": "string", "enum": ["lost", "found", "resolved"] },
+        "foundQuantity": { "type": "number" },
+        "foundDate": { "type": "string", "maxLength": 32 },
+        "foundNotes": { "type": "string", "maxLength": 500 },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["productId", "productName", "type", "quantity"]
     }
   },
   "firestore": {
@@ -198,6 +217,10 @@
     "/customers/{customerId}": {
       "schema": "Customer",
       "description": "Registered customer accounts"
+    },
+    "/item_logs/{logId}": {
+      "schema": "ItemStatusLog",
+      "description": "Lost and item status logs"
     }
   }
 }

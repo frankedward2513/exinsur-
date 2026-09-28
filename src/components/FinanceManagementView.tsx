@@ -32,8 +32,11 @@ import {
   CreditCard,
   ArrowUpRight,
   ArrowDownRight,
+  HelpCircle,
+  Eye,
 } from 'lucide-react';
 import { LogItemStatusModal } from './LogItemStatusModal';
+import { ViewProductLostModal } from './ViewProductLostModal';
 import { ConfirmDeleteModal } from './ConfirmDeleteModal';
 
 export const FinanceManagementView: React.FC = () => {
@@ -176,6 +179,7 @@ export const FinanceManagementView: React.FC = () => {
   const [customStart, setCustomStart] = useState('');
   const [customEnd, setCustomEnd] = useState('');
   const [isLogModalOpen, setIsLogModalOpen] = useState(false);
+  const [isViewLostModalOpen, setIsViewLostModalOpen] = useState(false);
 
   // Product Filter State (to easily filter transactions by product code or name without scrolling)
   const [selectedProductFilterId, setSelectedProductFilterId] = useState<string | null>(null);
@@ -295,10 +299,17 @@ export const FinanceManagementView: React.FC = () => {
 
   // Sales Breakdown Metrics: POS (Face-to-Face), Online Showcase, Combined Total Sold, and Net (after Returns, Damaged, Lost)
   const salesMetrics = useMemo(() => {
-    // 1. POS Face-to-Face Sales
-    const posOrders = orders.filter(
-      (o) => o.orderSource === 'pos' && o.status !== 'cancelled'
-    );
+    // 1. POS Face-to-Face Sales (Only active orders that have not been deleted from transaction ledger)
+    const posOrders = orders.filter((o) => {
+      if (o.orderSource !== 'pos' || o.status === 'cancelled') return false;
+      if (transactions.length > 0) {
+        const hasTx = transactions.some(
+          (t) => t.orderId === o.id || (t.description && t.description.includes(o.orderNumber))
+        );
+        if (!hasTx) return false;
+      }
+      return true;
+    });
     const posOrdersCount = posOrders.length;
     let posPiecesSold = 0;
     let posRevenue = 0;
@@ -311,10 +322,17 @@ export const FinanceManagementView: React.FC = () => {
       }
     });
 
-    // 2. Online Showcase Sales
-    const onlineOrders = orders.filter(
-      (o) => o.orderSource !== 'pos' && o.status !== 'cancelled'
-    );
+    // 2. Online Showcase Sales (Only active orders that have not been deleted from transaction ledger)
+    const onlineOrders = orders.filter((o) => {
+      if (o.orderSource === 'pos' || o.status === 'cancelled') return false;
+      if (transactions.length > 0) {
+        const hasTx = transactions.some(
+          (t) => t.orderId === o.id || (t.description && t.description.includes(o.orderNumber))
+        );
+        if (!hasTx) return false;
+      }
+      return true;
+    });
     const onlineOrdersCount = onlineOrders.length;
     let onlinePiecesSold = 0;
     let onlineRevenue = 0;
@@ -544,6 +562,31 @@ export const FinanceManagementView: React.FC = () => {
 
     return { totalInflow, totalOutflow, netOperating };
   }, [filteredTransactions]);
+
+  // Lost Products Metrics & Financial Valuation (Active lost items; if found, removed from lost)
+  const lostMetrics = useMemo(() => {
+    const lostLogs = itemStatusLogs.filter(
+      (log) => log.type === 'lost' && log.status !== 'found' && log.quantity > 0
+    );
+    let totalLostPieces = 0;
+    let totalLostValue = 0;
+
+    lostLogs.forEach((log) => {
+      const prod = products.find((p) => p.id === log.productId);
+      const price = prod ? prod.sellingPrice : 0;
+      totalLostPieces += log.quantity;
+      totalLostValue += price * log.quantity;
+    });
+
+    return {
+      totalRecords: lostLogs.length,
+      activeRecords: lostLogs.length,
+      totalLostPieces,
+      activeLostPieces: totalLostPieces,
+      totalLostValue,
+      activeLostValue: totalLostValue,
+    };
+  }, [itemStatusLogs, products]);
 
   // Export to Excel / CSV
   const handleExportExcel = () => {
@@ -970,7 +1013,7 @@ export const FinanceManagementView: React.FC = () => {
       {/* ===================== TAB 3: TRANSACTION HISTORY ===================== */}
       {activeTab === 'history' && (
         <div className="space-y-6">
-          {/* Sales Channels Breakdown & Net Reconciliation (POS vs Online vs Combined vs Net) */}
+          {/* Sales Channels Breakdown & Combined Totals (POS vs Online vs Combined) */}
           <div className="space-y-3">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
               <div>
@@ -979,142 +1022,144 @@ export const FinanceManagementView: React.FC = () => {
                   <span>Sales Breakdown: POS Face-to-Face vs Online Showcase</span>
                 </h3>
                 <p className="text-xs text-stone-400">
-                  Track volume sold per channel, combined sales, and net inventory deductions
+                  Track volume sold per channel and combined total sales
                 </p>
               </div>
 
-              {/* Fast Action to Log Return, Damaged, or Lost */}
+              {/* Fast Action to Log Lost Item */}
               <button
                 type="button"
                 onClick={() => setIsLogModalOpen(true)}
-                className="self-start sm:self-auto py-2 px-3.5 rounded-xl bg-stone-900 hover:bg-stone-800 text-orange-400 hover:text-orange-300 border border-orange-500/30 text-xs font-bold transition flex items-center gap-2 shadow-sm cursor-pointer"
+                className="self-start sm:self-auto py-2 px-3.5 rounded-xl bg-stone-900 hover:bg-stone-800 text-purple-400 hover:text-purple-300 border border-purple-500/30 text-xs font-bold transition flex items-center gap-2 shadow-sm cursor-pointer"
               >
-                <RotateCcw className="w-3.5 h-3.5 text-orange-400" />
-                <span>+ Log Return / Damaged / Lost</span>
+                <HelpCircle className="w-3.5 h-3.5 text-purple-400" />
+                <span>+ Log Lost Item</span>
               </button>
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5">
-              {/* 1. POS Face-to-Face Sales */}
-              <div className="p-4 rounded-2xl glass-panel border border-orange-500/25 relative overflow-hidden flex flex-col justify-between">
-                <div>
-                  <div className="flex items-center justify-between text-xs">
-                    <span className="font-bold text-orange-400 flex items-center gap-1.5 uppercase tracking-wider text-[11px]">
-                      <Store className="w-3.5 h-3.5" />
-                      <span>POS (Face-to-Face)</span>
-                    </span>
-                    <span className="px-2 py-0.5 rounded-full bg-orange-500/20 text-orange-300 font-mono text-[10px] font-bold">
-                      Counter
-                    </span>
-                  </div>
-                  <div className="mt-2.5">
-                    <span className="text-2xl font-black text-white font-mono">
-                      {salesMetrics.posPiecesSold} <span className="text-xs font-normal text-stone-400 font-sans">pcs sold</span>
-                    </span>
-                  </div>
-                  <p className="text-xs font-bold text-emerald-400 font-mono mt-0.5">
-                    ₱{salesMetrics.posRevenue.toLocaleString()}
-                  </p>
-                </div>
-                <div className="pt-2 mt-2 border-t border-stone-800/80 text-[11px] text-stone-400 flex justify-between">
-                  <span>Completed Sales:</span>
-                  <span className="font-mono text-stone-200 font-bold">{salesMetrics.posOrdersCount} txns</span>
-                </div>
-                <div className="absolute bottom-0 left-0 right-0 h-1 bg-orange-500" />
-              </div>
-
-              {/* 2. Online Showcase Sales */}
-              <div className="p-4 rounded-2xl glass-panel border border-sky-500/25 relative overflow-hidden flex flex-col justify-between">
-                <div>
-                  <div className="flex items-center justify-between text-xs">
-                    <span className="font-bold text-sky-400 flex items-center gap-1.5 uppercase tracking-wider text-[11px]">
-                      <ShoppingBag className="w-3.5 h-3.5" />
-                      <span>Online Showcase</span>
-                    </span>
-                    <span className="px-2 py-0.5 rounded-full bg-sky-500/20 text-sky-300 font-mono text-[10px] font-bold">
-                      Delivery
-                    </span>
-                  </div>
-                  <div className="mt-2.5">
-                    <span className="text-2xl font-black text-white font-mono">
-                      {salesMetrics.onlinePiecesSold} <span className="text-xs font-normal text-stone-400 font-sans">pcs sold</span>
-                    </span>
-                  </div>
-                  <p className="text-xs font-bold text-emerald-400 font-mono mt-0.5">
-                    ₱{salesMetrics.onlineRevenue.toLocaleString()}
-                  </p>
-                </div>
-                <div className="pt-2 mt-2 border-t border-stone-800/80 text-[11px] text-stone-400 flex justify-between">
-                  <span>Customer Orders:</span>
-                  <span className="font-mono text-stone-200 font-bold">{salesMetrics.onlineOrdersCount} orders</span>
-                </div>
-                <div className="absolute bottom-0 left-0 right-0 h-1 bg-sky-500" />
-              </div>
-
-              {/* 3. Combined Total Sold (Face-to-Face + Online) */}
-              <div className="p-4 rounded-2xl glass-panel border border-emerald-500/30 relative overflow-hidden flex flex-col justify-between bg-gradient-to-br from-stone-900/90 via-stone-900/90 to-emerald-950/30">
-                <div>
-                  <div className="flex items-center justify-between text-xs">
-                    <span className="font-bold text-emerald-400 flex items-center gap-1.5 uppercase tracking-wider text-[11px]">
-                      <Layers className="w-3.5 h-3.5" />
-                      <span>Combined Total Sold</span>
-                    </span>
-                    <span className="px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 font-mono text-[10px] font-bold">
-                      Face-to-Face + Online
-                    </span>
-                  </div>
-                  <div className="mt-2.5">
-                    <span className="text-2xl font-black text-emerald-300 font-mono">
-                      {salesMetrics.combinedPiecesSold} <span className="text-xs font-normal text-stone-300 font-sans">total pcs</span>
-                    </span>
-                  </div>
-                  <p className="text-xs font-bold text-emerald-400 font-mono mt-0.5">
-                    Gross: ₱{salesMetrics.combinedGrossRevenue.toLocaleString()}
-                  </p>
-                </div>
-                <div className="pt-2 mt-2 border-t border-stone-800/80 text-[11px] text-stone-400 flex justify-between">
-                  <span>Total Transactions:</span>
-                  <span className="font-mono text-stone-200 font-bold">{salesMetrics.combinedOrdersCount} total</span>
-                </div>
-                <div className="absolute bottom-0 left-0 right-0 h-1 bg-emerald-500" />
-              </div>
-
-              {/* 4. Net Count & Net Revenue (After Returns, Damaged, Lost) */}
-              <div className="p-4 rounded-2xl glass-panel border border-amber-500/30 relative overflow-hidden flex flex-col justify-between bg-gradient-to-br from-stone-900/90 via-stone-900/90 to-amber-950/30">
-                <div>
-                  <div className="flex items-center justify-between text-xs">
-                    <span className="font-bold text-amber-400 flex items-center gap-1.5 uppercase tracking-wider text-[11px]">
-                      <RotateCcw className="w-3.5 h-3.5" />
-                      <span>Net Inventory & Sales</span>
-                    </span>
-                    <span className="px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-300 font-mono text-[10px] font-bold">
-                      Net
-                    </span>
-                  </div>
-                  <div className="mt-2.5">
-                    <span className="text-2xl font-black text-amber-300 font-mono">
-                      {salesMetrics.netPiecesSold} <span className="text-xs font-normal text-stone-300 font-sans">net pcs</span>
-                    </span>
-                  </div>
-                  <p className="text-xs font-bold text-amber-400 font-mono mt-0.5">
-                    Net: ₱{salesMetrics.netRevenue.toLocaleString()}
-                  </p>
-                </div>
-                <div className="pt-2 mt-2 border-t border-stone-800/80 text-[10px] text-stone-400 flex justify-between items-center">
-                  <span className="truncate">
-                    Deductions: {salesMetrics.returnedCount} ret / {salesMetrics.damagedCount} dam / {salesMetrics.lostCount} lost
+            {/* Single KPI Card formatted as a Table (POS, Online Showcase, Combined Total) */}
+            <div className="p-4 sm:p-5 rounded-2xl glass-panel border border-orange-500/25 relative overflow-hidden bg-gradient-to-br from-stone-900/90 via-stone-900/95 to-stone-950 shadow-md">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-3 mb-3 border-b border-stone-800 gap-2">
+                <div className="flex items-center gap-2">
+                  <span className="p-2 rounded-xl bg-orange-500/10 text-orange-400 border border-orange-500/20">
+                    <Store className="w-4 h-4" />
                   </span>
-                  <span className="font-mono text-rose-400 font-bold shrink-0 ml-1">
-                    -{salesMetrics.totalDispositions} pcs
+                  <div>
+                    <h4 className="text-xs sm:text-sm font-bold uppercase tracking-wider text-white">
+                      Sales Channels & Revenue Summary
+                    </h4>
+                    <p className="text-[11px] text-stone-400">
+                      Channel performance and combined sales totals
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2 self-start sm:self-auto">
+                  <span className="px-2.5 py-1 rounded-full bg-emerald-500/15 text-emerald-400 text-[11px] font-mono font-bold border border-emerald-500/30 flex items-center gap-1.5">
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                    Combined: ₱{salesMetrics.combinedGrossRevenue.toLocaleString()}
                   </span>
                 </div>
-                <div className="absolute bottom-0 left-0 right-0 h-1 bg-amber-500" />
               </div>
+
+              <div className="overflow-x-auto">
+                <table className="w-full text-left border-collapse min-w-[480px] sm:min-w-0">
+                  <thead>
+                    <tr className="border-b border-stone-800/80 text-[10px] sm:text-[11px] uppercase tracking-wider text-stone-400 font-semibold bg-stone-950/40">
+                      <th className="py-2.5 px-3.5 rounded-l-lg">Sales Channel</th>
+                      <th className="py-2.5 px-3.5 text-center">Volume Sold</th>
+                      <th className="py-2.5 px-3.5 text-center">Transactions</th>
+                      <th className="py-2.5 px-3.5 text-right rounded-r-lg">Total</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-stone-800/50 text-xs font-sans">
+                    {/* 1. POS */}
+                    <tr className="hover:bg-stone-800/30 transition-colors">
+                      <td className="py-3 px-3.5">
+                        <div className="flex items-center gap-2.5">
+                          <span className="w-2.5 h-2.5 rounded-full bg-orange-500 shadow-sm shadow-orange-500/50 shrink-0" />
+                          <div className="flex items-center gap-1.5">
+                            <span className="font-bold text-stone-100 text-xs sm:text-sm">POS</span>
+                            <span className="text-[10px] sm:text-xs text-stone-400 font-normal">
+                              (Face-to-Face Counter)
+                            </span>
+                          </div>
+                        </div>
+                      </td>
+                      <td className="py-3 px-3.5 text-center font-mono">
+                        <span className="font-bold text-stone-100">{salesMetrics.posPiecesSold}</span>
+                        <span className="text-[11px] text-stone-400 ml-1">pcs</span>
+                      </td>
+                      <td className="py-3 px-3.5 text-center font-mono text-stone-300 text-xs">
+                        {salesMetrics.posOrdersCount} <span className="text-[10px] text-stone-400">txns</span>
+                      </td>
+                      <td className="py-3 px-3.5 text-right font-mono font-bold text-emerald-400 text-xs sm:text-sm">
+                        ₱{salesMetrics.posRevenue.toLocaleString()}
+                      </td>
+                    </tr>
+
+                    {/* 2. Online Showcase */}
+                    <tr className="hover:bg-stone-800/30 transition-colors">
+                      <td className="py-3 px-3.5">
+                        <div className="flex items-center gap-2.5">
+                          <span className="w-2.5 h-2.5 rounded-full bg-sky-500 shadow-sm shadow-sky-500/50 shrink-0" />
+                          <div className="flex items-center gap-1.5">
+                            <span className="font-bold text-stone-100 text-xs sm:text-sm">Online Showcase</span>
+                            <span className="text-[10px] sm:text-xs text-stone-400 font-normal">
+                              (Customer Orders)
+                            </span>
+                          </div>
+                        </div>
+                      </td>
+                      <td className="py-3 px-3.5 text-center font-mono">
+                        <span className="font-bold text-stone-100">{salesMetrics.onlinePiecesSold}</span>
+                        <span className="text-[11px] text-stone-400 ml-1">pcs</span>
+                      </td>
+                      <td className="py-3 px-3.5 text-center font-mono text-stone-300 text-xs">
+                        {salesMetrics.onlineOrdersCount} <span className="text-[10px] text-stone-400">orders</span>
+                      </td>
+                      <td className="py-3 px-3.5 text-right font-mono font-bold text-emerald-400 text-xs sm:text-sm">
+                        ₱{salesMetrics.onlineRevenue.toLocaleString()}
+                      </td>
+                    </tr>
+
+                    {/* 3. Combined Total */}
+                    <tr className="bg-emerald-950/20 font-bold border-t-2 border-stone-700/80">
+                      <td className="py-3.5 px-3.5 rounded-l-lg">
+                        <div className="flex items-center gap-2.5">
+                          <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 shadow-sm shadow-emerald-400/50 shrink-0" />
+                          <div className="flex items-center gap-1.5">
+                            <span className="font-black text-emerald-300 uppercase tracking-wider text-xs sm:text-sm">
+                              Total
+                            </span>
+                            <span className="text-[10px] sm:text-xs text-stone-400 font-normal">
+                              (Combined Sales)
+                            </span>
+                          </div>
+                        </div>
+                      </td>
+                      <td className="py-3.5 px-3.5 text-center font-mono">
+                        <span className="font-black text-emerald-300">{salesMetrics.combinedPiecesSold}</span>
+                        <span className="text-[11px] text-emerald-400/80 ml-1">pcs</span>
+                      </td>
+                      <td className="py-3.5 px-3.5 text-center font-mono text-emerald-300 text-xs">
+                        {salesMetrics.combinedOrdersCount} <span className="text-[10px] text-stone-400">total</span>
+                      </td>
+                      <td className="py-3.5 px-3.5 text-right font-mono font-black text-emerald-400 text-sm sm:text-base rounded-r-lg">
+                        ₱{salesMetrics.combinedGrossRevenue.toLocaleString()}
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+
+              {/* Decorative Accent Bar */}
+              <div className="absolute bottom-0 left-0 right-0 h-1 bg-gradient-to-r from-orange-500 via-sky-500 to-emerald-500" />
             </div>
           </div>
 
-          {/* Cash Flow Summary KPI Cards: Total Inflow, Total Outflow, Net Operating Outflow/Inflow */}
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+          {/* Cash Flow Summary KPI Cards: Total Inflow, Total Outflow, Net Operating Outflow/Inflow, Lost */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
             <div className="p-5 rounded-2xl glass-panel relative overflow-hidden">
               <span className="text-xs font-semibold uppercase text-stone-400">Total Inflow</span>
               <div className="text-2xl font-black text-emerald-400 mt-1">
@@ -1146,6 +1191,39 @@ export const FinanceManagementView: React.FC = () => {
               </div>
               <p className="text-[11px] text-stone-400 mt-1">Inflow minus Outflow</p>
               <div className="absolute bottom-0 left-0 right-0 h-1 bg-orange-500" />
+            </div>
+
+            {/* KPI Card: Lost */}
+            <div className="p-5 rounded-2xl glass-panel relative overflow-hidden flex flex-col justify-between group hover:border-amber-500/40 transition">
+              <div>
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-semibold uppercase text-stone-400">Lost</span>
+                  <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-amber-500/15 text-amber-300 font-bold border border-amber-500/30">
+                    {lostMetrics.activeLostPieces} pcs missing
+                  </span>
+                </div>
+                <div className="text-2xl font-black text-amber-400 mt-1">
+                  ₱{lostMetrics.activeLostValue.toLocaleString()}
+                </div>
+                <p className="text-[11px] text-stone-400 mt-1">
+                  {lostMetrics.totalLostPieces > 0
+                    ? 'Active missing inventory valuation'
+                    : 'No unaccounted missing items'}
+                </p>
+              </div>
+
+              <div className="pt-3 mt-2 border-t border-stone-800/80">
+                <button
+                  type="button"
+                  onClick={() => setIsViewLostModalOpen(true)}
+                  className="w-full py-1.5 px-2.5 rounded-xl bg-amber-500/10 hover:bg-amber-500/20 text-amber-300 text-xs font-bold transition flex items-center justify-center gap-1.5 border border-amber-500/30 cursor-pointer active:scale-95"
+                >
+                  <Eye className="w-3.5 h-3.5" />
+                  <span>View Product Lost</span>
+                </button>
+              </div>
+
+              <div className="absolute bottom-0 left-0 right-0 h-1 bg-amber-500" />
             </div>
           </div>
 
@@ -1837,6 +1915,13 @@ export const FinanceManagementView: React.FC = () => {
       <LogItemStatusModal
         isOpen={isLogModalOpen}
         onClose={() => setIsLogModalOpen(false)}
+      />
+
+      {/* Modal to View Lost Products and Update if Found */}
+      <ViewProductLostModal
+        isOpen={isViewLostModalOpen}
+        onClose={() => setIsViewLostModalOpen(false)}
+        onOpenLogLostModal={() => setIsLogModalOpen(true)}
       />
 
       {/* Modal to Filter Ledger by Product (Like Product Inventory Management) */}
