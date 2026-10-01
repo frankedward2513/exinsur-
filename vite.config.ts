@@ -17,15 +17,55 @@ function geminiApiPlugin(): Plugin {
             body += chunk;
           });
           req.on('end', async () => {
+            let contextData: any = null;
             try {
-              const { prompt, systemInstruction, contextData } = JSON.parse(body || '{}');
+              const parsed = JSON.parse(body || '{}');
+              const { prompt, systemInstruction } = parsed;
+              contextData = parsed.contextData;
+              
+              // Verify topic relevance to store inventory and expenses
+              const q = (prompt || '').toLowerCase().trim();
+              const inventoryExpenseKeywords = [
+                'inventory', 'product', 'products', 'item', 'items', 'stock', 'stocks', 'bale', 'bales',
+                'category', 'categories', 'supplier', 'suppliers', 'barcode', 'barcodes', 'quantity',
+                'available', 'remaining', 'out of stock', 'low stock', 'restock', 'reorder',
+                'cost', 'price', 'pricing', 'selling price', 'cost price', 'apparel', 'clothing',
+                'expense', 'expenses', 'account', 'accounts', 'disbursement', 'disbursements',
+                'budget', 'budgets', 'spent', 'spending', 'utility', 'utilities', 'electric',
+                'meralco', 'water', 'rent', 'salary', 'salaries', 'wages', 'wage', 'operational',
+                'outflow', 'ledger', 'disburse', 'break-even', 'breakeven', 'margin', 'loss',
+                'damaged', 'lost', 'returned', 'summary', 'overview', 'performance', 'balance',
+                'sales', 'sale', 'database', 'db', 'fetch', 'data', 'store', 'record', 'records',
+                'order', 'orders', 'report', 'stats', 'figures', 'inflow', 'revenue',
+                'recommend', 'recommendation', 'recommendations', 'suggest', 'suggestion', 'suggestions',
+                'strategy', 'strategies', 'advice', 'optimize', 'improve', 'cut', 'reduce',
+                'deadstock', 'clearance', 'discount', 'bundle', 'markup', 'cogs', 'profit',
+                'hi', 'hello', 'hey', 'help', 'exins', 'novaliches'
+              ];
+              const isRelevant = inventoryExpenseKeywords.some((k) => q.includes(k));
+
+              if (!isRelevant) {
+                res.writeHead(200, { 'Content-Type': 'application/json' });
+                res.end(
+                  JSON.stringify({
+                    text: "I can only answer questions related to your store's inventory and expenses. Feel free to ask about your products, stock levels, bales, budgets, operational disbursements, or store recommendations!",
+                  })
+                );
+                return;
+              }
+
+              const pCount = contextData?.productCount ?? contextData?.inventorySummary?.totalProducts ?? 0;
+              const bCount = contextData?.baleCount ?? contextData?.inventorySummary?.totalBales ?? 0;
+              const expTotal = contextData?.totalExpenses ?? contextData?.expensesSummary?.totalDisbursedAmount ?? 0;
+              const lowStockList = contextData?.lowStockProducts ?? contextData?.inventorySummary?.lowStockProducts ?? [];
+
               const apiKey = process.env.GEMINI_API_KEY;
               
               if (!apiKey) {
                 res.writeHead(200, { 'Content-Type': 'application/json' });
                 res.end(
                   JSON.stringify({
-                    text: `Hello! I am your AI EXINS business assistant. I analyzed your store data: You currently have ${contextData?.productCount || 0} listed products, ₱${contextData?.totalSales || 0} in total sales, and ₱${contextData?.totalExpenses || 0} in expenses. To maximize profits for EXINS Jksur+ Novaliches, focus on high-margin apparel bales, keep fast-moving jackets and shoes restocked, and maintain healthy break-even margins.`,
+                    text: `Fetched from your live store database: You have ${pCount} products listed across ${bCount} bales, with ₱${Number(expTotal).toLocaleString()} recorded in operational expenses. ${lowStockList.length > 0 ? `${lowStockList.length} items currently have low stock (<= 3 units).` : 'All inventory stock levels are healthy.'}`,
                     fallback: true
                   })
                 );
@@ -39,7 +79,7 @@ function geminiApiPlugin(): Plugin {
               }${prompt}`;
 
               const response = await ai.models.generateContent({
-                model: 'gemini-2.5-flash',
+                model: 'gemini-3.8-flash',
                 contents: fullPrompt,
               });
 
@@ -47,10 +87,12 @@ function geminiApiPlugin(): Plugin {
               res.end(JSON.stringify({ text: response.text }));
             } catch (err: any) {
               console.error('Gemini API Error:', err);
+              const pCount = contextData?.productCount ?? contextData?.inventorySummary?.totalProducts ?? 0;
+              const expTotal = contextData?.totalExpenses ?? contextData?.expensesSummary?.totalDisbursedAmount ?? 0;
               res.writeHead(200, { 'Content-Type': 'application/json' });
               res.end(
                 JSON.stringify({
-                  text: `AI Assistant insight: Based on current EXINS store performance, keep an eye on open bales and prioritize clearance on slower seasonal items. (Note: ${err.message || 'API call failed'})`,
+                  text: `Based on your database: ${pCount} inventory items are recorded with ₱${Number(expTotal).toLocaleString()} in operational disbursements.`,
                   fallback: true
                 })
               );

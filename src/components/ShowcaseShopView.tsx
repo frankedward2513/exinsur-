@@ -3,6 +3,12 @@ import { useStore } from '../context/StoreContext';
 import { Product, Order } from '../types';
 import { ReceiptModal } from './ReceiptModal';
 import { ConfirmDeleteModal } from './ConfirmDeleteModal';
+import { Pagination } from './Pagination';
+import {
+  formatPhoneNumber,
+  isValidPhoneNumber,
+  isValidEmail,
+} from '../utils/validation';
 import {
   Search,
   ShoppingBag,
@@ -24,18 +30,24 @@ import {
   CheckCircle2,
   AlertCircle,
   User,
+  Award,
+  X,
+  Trophy,
+  Calendar,
 } from 'lucide-react';
 
 interface ShowcaseShopViewProps {
   isCartOpen: boolean;
   setIsCartOpen: (open: boolean) => void;
   onOpenAuth: (mode?: 'login' | 'signup') => void;
+  initialMode?: 'browse' | 'orders' | 'top_customers';
 }
 
 export const ShowcaseShopView: React.FC<ShowcaseShopViewProps> = ({
   isCartOpen,
   setIsCartOpen,
   onOpenAuth,
+  initialMode = 'browse',
 }) => {
   const {
     products,
@@ -56,10 +68,30 @@ export const ShowcaseShopView: React.FC<ShowcaseShopViewProps> = ({
     cancelOrder,
   } = useStore();
 
-  const isGuest = currentUser.role === 'guest' || currentUser.isGuest || !currentUser.email;
+  const isGuest = currentUser.role === 'guest' || currentUser.isGuest === true;
 
-  // Mode: 'browse' | 'orders'
-  const [activeMode, setActiveMode] = useState<'browse' | 'orders'>('browse');
+  // Mode: 'browse' | 'orders' | 'top_customers'
+  const [activeMode, setActiveMode] = useState<'browse' | 'orders' | 'top_customers'>(initialMode);
+
+  useEffect(() => {
+    if (initialMode) {
+      setActiveMode(initialMode);
+    }
+  }, [initialMode]);
+
+  // Top 10 Customers Filter States
+  const [topCustomerFilterType, setTopCustomerFilterType] = useState<'month' | 'custom' | 'all'>('month');
+
+  // Per month filter default (current month format YYYY-MM)
+  const currentMonthStr = useMemo(() => {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+  }, []);
+  const [selectedMonth, setSelectedMonth] = useState<string>(currentMonthStr);
+
+  // Custom date range filter
+  const [customStartDate, setCustomStartDate] = useState<string>('');
+  const [customEndDate, setCustomEndDate] = useState<string>('');
 
   // Search & Category Filter
   const [searchQuery, setSearchQuery] = useState('');
@@ -139,17 +171,203 @@ export const ShowcaseShopView: React.FC<ShowcaseShopViewProps> = ({
   );
   const allCartSelected = cart.length > 0 && cart.every((item) => item.selected);
 
-  // Orders to display (Customer sees their own or all if owner/staff)
-  const displayOrders = useMemo(() => {
-    if (currentUser.role === 'customer') {
-      return orders.filter(
-        (o) =>
-          o.email?.toLowerCase() === currentUser.email?.toLowerCase() ||
-          o.customerName?.toLowerCase() === currentUser.displayName?.toLowerCase()
-      );
+  const isStoreAdmin = currentUser.role === 'owner' || currentUser.role === 'staff';
+  const [orderStatusFilter, setOrderStatusFilter] = useState<string>('all');
+
+  // Customer orders strictly isolated: only who ordered it will see their own orders
+  const customerOrders = useMemo(() => {
+    if (isStoreAdmin) return orders;
+
+    // Check locally placed orders IDs
+    let localPlacedIds: string[] = [];
+    try {
+      localPlacedIds = JSON.parse(localStorage.getItem('exins_placed_orders') || '[]');
+    } catch {
+      // ignore
     }
-    return orders;
-  }, [orders, currentUser]);
+
+    const userEmail = (currentUser.email || '').trim().toLowerCase();
+    const userPhoneClean = (currentUser.phone || '').replace(/\D/g, '').slice(-10);
+    const userName = (currentUser.displayName || '').trim().toLowerCase();
+    const userUid = (currentUser.uid || '').trim();
+
+    return orders.filter((o) => {
+      // 1. Direct local placed match
+      if (localPlacedIds.includes(o.id)) return true;
+
+      // 2. Direct UID match
+      if (userUid && o.userId && (o.userId === userUid || o.userId.includes(userUid) || userUid.includes(o.userId))) {
+        return true;
+      }
+
+      // 3. Exact email match (case-insensitive)
+      if (userEmail && o.email && o.email.trim().toLowerCase() === userEmail) {
+        return true;
+      }
+
+      // 4. Contact number match (matches last 10 digits to handle +63 vs 09)
+      if (userPhoneClean && userPhoneClean.length >= 7 && o.contactNumber) {
+        const orderPhoneClean = o.contactNumber.replace(/\D/g, '').slice(-10);
+        if (orderPhoneClean && orderPhoneClean === userPhoneClean) {
+          return true;
+        }
+      }
+
+      // 5. Customer name match if specific and not generic
+      if (
+        userName &&
+        userName !== 'customer' &&
+        userName !== 'guest' &&
+        userName !== 'guest visitor' &&
+        o.customerName &&
+        o.customerName.trim().toLowerCase() === userName
+      ) {
+        return true;
+      }
+
+      return false;
+    });
+  }, [orders, currentUser, isStoreAdmin]);
+
+  // Orders to display (Filtered by status if chosen)
+  const displayOrders = useMemo(() => {
+    const baseList = isStoreAdmin ? orders : customerOrders;
+    if (orderStatusFilter !== 'all') {
+      return baseList.filter((o) => o.status === orderStatusFilter);
+    }
+    return baseList;
+  }, [orders, customerOrders, isStoreAdmin, orderStatusFilter]);
+
+  // Distinct available months from orders for month-only filter
+  const availableMonths = useMemo(() => {
+    const set = new Set<string>();
+    const now = new Date();
+    set.add(`${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`);
+    orders.forEach((o) => {
+      const d = new Date(o.createdAt);
+      if (!isNaN(d.getTime())) {
+        set.add(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`);
+      }
+    });
+    return Array.from(set).sort().reverse();
+  }, [orders]);
+
+  const formatMonthLabel = (yyyyMm: string) => {
+    if (!yyyyMm) return 'All Months';
+    const parts = yyyyMm.split('-');
+    if (parts.length < 2) return yyyyMm;
+    const date = new Date(parseInt(parts[0], 10), parseInt(parts[1], 10) - 1, 1);
+    return isNaN(date.getTime()) ? yyyyMm : date.toLocaleString('default', { month: 'long', year: 'numeric' });
+  };
+
+  // Orders filtered for Top 10 Customers based on month-only or custom date range
+  const filteredOrdersForTopCustomers = useMemo(() => {
+    return orders.filter((o) => {
+      if (o.status === 'cancelled') return false;
+      const orderDate = new Date(o.createdAt);
+      if (isNaN(orderDate.getTime())) return false;
+
+      // 1. Per Month Only Filter
+      if (topCustomerFilterType === 'month') {
+        if (!selectedMonth) return true;
+        const [yearStr, monthStr] = selectedMonth.split('-');
+        const targetYear = parseInt(yearStr, 10);
+        const targetMonth = parseInt(monthStr, 10) - 1;
+        return orderDate.getFullYear() === targetYear && orderDate.getMonth() === targetMonth;
+      }
+
+      // 2. Custom Date Range Filter
+      if (topCustomerFilterType === 'custom') {
+        if (customStartDate) {
+          const start = new Date(customStartDate);
+          start.setHours(0, 0, 0, 0);
+          if (orderDate < start) return false;
+        }
+        if (customEndDate) {
+          const end = new Date(customEndDate);
+          end.setHours(23, 59, 59, 999);
+          if (orderDate > end) return false;
+        }
+        return true;
+      }
+
+      // 3. All Time
+      return true;
+    });
+  }, [orders, topCustomerFilterType, selectedMonth, customStartDate, customEndDate]);
+
+  // Aggregated Top 10 Customer Spenders
+  const top10Customers = useMemo(() => {
+    interface CustomerSpendAgg {
+      customerId: string;
+      customerName: string;
+      contactNumber?: string;
+      email?: string;
+      address?: string;
+      totalSpent: number;
+      orderCount: number;
+      itemsCount: number;
+      lastOrderDate: string;
+      purchasedItemNames: string[];
+    }
+
+    const customerMap: Record<string, CustomerSpendAgg> = {};
+
+    filteredOrdersForTopCustomers.forEach((ord) => {
+      const cleanEmail = (ord.email || '').trim().toLowerCase();
+      const cleanPhone = (ord.contactNumber || '').replace(/\D/g, '').slice(-10);
+      const cleanName = (ord.customerName || 'Customer').trim();
+      const key =
+        ord.userId ||
+        cleanEmail ||
+        (cleanPhone.length >= 7 ? `phone_${cleanPhone}` : '') ||
+        cleanName.toLowerCase() ||
+        ord.id;
+
+      if (!customerMap[key]) {
+        customerMap[key] = {
+          customerId: key,
+          customerName: cleanName,
+          contactNumber: ord.contactNumber,
+          email: ord.email,
+          address: ord.address,
+          totalSpent: 0,
+          orderCount: 0,
+          itemsCount: 0,
+          lastOrderDate: ord.createdAt,
+          purchasedItemNames: [],
+        };
+      }
+
+      const agg = customerMap[key];
+      agg.totalSpent += Number(ord.totalAmount) || 0;
+      agg.orderCount += 1;
+
+      const totalItems = ord.items.reduce((s, it) => s + it.quantity, 0);
+      agg.itemsCount += totalItems;
+
+      ord.items.forEach((it) => {
+        if (!agg.purchasedItemNames.includes(it.name) && agg.purchasedItemNames.length < 4) {
+          agg.purchasedItemNames.push(it.name);
+        }
+      });
+
+      if (cleanName && cleanName !== 'Customer' && (!agg.customerName || agg.customerName === 'Customer')) {
+        agg.customerName = cleanName;
+      }
+      if (ord.contactNumber && !agg.contactNumber) agg.contactNumber = ord.contactNumber;
+      if (ord.email && !agg.email) agg.email = ord.email;
+      if (ord.address && !agg.address) agg.address = ord.address;
+
+      if (new Date(ord.createdAt) > new Date(agg.lastOrderDate)) {
+        agg.lastOrderDate = ord.createdAt;
+      }
+    });
+
+    return Object.values(customerMap)
+      .sort((a, b) => b.totalSpent - a.totalSpent)
+      .slice(0, 10);
+  }, [filteredOrdersForTopCustomers]);
 
   // Handle Photo Upload
   const handleReceiptUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -175,10 +393,11 @@ export const ShowcaseShopView: React.FC<ShowcaseShopViewProps> = ({
 
     try {
       const created = await createOrder({
-        customerName: customerName.trim() || 'Online Customer',
-        contactNumber: contactNumber.trim() || 'N/A',
+        userId: currentUser.uid || undefined,
+        customerName: customerName.trim() || currentUser.displayName || 'Online Customer',
+        contactNumber: contactNumber.trim() || currentUser.phone || 'N/A',
         email: email.trim() || currentUser.email || 'customer@exins.shop',
-        address: address.trim() || 'Store Pickup / Standard Delivery',
+        address: address.trim() || currentUser.address || 'Store Pickup / Standard Delivery',
         items: selectedCartItems.map((item) => ({
           productId: item.productId,
           name: item.name,
@@ -261,7 +480,7 @@ export const ShowcaseShopView: React.FC<ShowcaseShopViewProps> = ({
 
           {/* Action Buttons based on User Role */}
           <div className="flex flex-wrap sm:flex-nowrap items-center gap-3">
-            {currentUser.role === 'owner' ? (
+            {isStoreAdmin ? (
               <>
                 <button
                   onClick={() => setActiveMode('browse')}
@@ -283,7 +502,24 @@ export const ShowcaseShopView: React.FC<ShowcaseShopViewProps> = ({
                   }`}
                 >
                   <Truck className="w-4 h-4" />
-                  <span>New Orders ({orders.length})</span>
+                  <span>
+                    New Orders (
+                    {orders.filter((o) => o.status === 'pending').length > 0
+                      ? `${orders.filter((o) => o.status === 'pending').length} New / ${orders.length}`
+                      : orders.length}
+                    )
+                  </span>
+                </button>
+                <button
+                  onClick={() => setActiveMode('top_customers')}
+                  className={`px-5 py-3 rounded-2xl font-bold text-sm shadow-md transition flex items-center gap-2 cursor-pointer ${
+                    activeMode === 'top_customers'
+                      ? 'bg-gradient-to-r from-orange-600 to-amber-700 text-white shadow-orange-600/30'
+                      : 'bg-stone-900/80 text-stone-300 hover:text-white border border-orange-500/20'
+                  }`}
+                >
+                  <Trophy className="w-4 h-4 text-amber-400" />
+                  <span>Top 10 Customers</span>
                 </button>
               </>
             ) : isGuest ? (
@@ -300,11 +536,33 @@ export const ShowcaseShopView: React.FC<ShowcaseShopViewProps> = ({
                   <span>Browse Clothing</span>
                 </button>
                 <button
+                  onClick={() => setActiveMode('orders')}
+                  className={`px-5 py-3 rounded-2xl font-bold text-sm shadow-md transition flex items-center gap-2 cursor-pointer ${
+                    activeMode === 'orders'
+                      ? 'bg-gradient-to-r from-orange-600 to-amber-700 text-white shadow-orange-600/30'
+                      : 'bg-stone-900/80 text-stone-300 hover:text-white border border-orange-500/20'
+                  }`}
+                >
+                  <Clock className="w-4 h-4" />
+                  <span>My Orders</span>
+                </button>
+                <button
+                  onClick={() => setActiveMode('top_customers')}
+                  className={`px-5 py-3 rounded-2xl font-bold text-sm shadow-md transition flex items-center gap-2 cursor-pointer ${
+                    activeMode === 'top_customers'
+                      ? 'bg-gradient-to-r from-orange-600 to-amber-700 text-white shadow-orange-600/30'
+                      : 'bg-stone-900/80 text-stone-300 hover:text-white border border-orange-500/20'
+                  }`}
+                >
+                  <Trophy className="w-4 h-4 text-amber-400" />
+                  <span>Top 10 Customers</span>
+                </button>
+                <button
                   onClick={() => onOpenAuth('signup')}
                   className="px-5 py-3 rounded-2xl font-bold text-sm shadow-md transition flex items-center gap-2 cursor-pointer bg-gradient-to-r from-orange-600 to-amber-700 hover:from-orange-500 hover:to-amber-600 text-white shadow-orange-600/30"
                 >
                   <User className="w-4 h-4" />
-                  <span>Sign In / Sign Up</span>
+                  <span>Sign In</span>
                 </button>
               </>
             ) : (
@@ -329,7 +587,18 @@ export const ShowcaseShopView: React.FC<ShowcaseShopViewProps> = ({
                   }`}
                 >
                   <Clock className="w-4 h-4" />
-                  <span>My Orders ({displayOrders.length})</span>
+                  <span>My Orders ({customerOrders.length})</span>
+                </button>
+                <button
+                  onClick={() => setActiveMode('top_customers')}
+                  className={`px-5 py-3 rounded-2xl font-bold text-sm shadow-md transition flex items-center gap-2 cursor-pointer ${
+                    activeMode === 'top_customers'
+                      ? 'bg-gradient-to-r from-orange-600 to-amber-700 text-white shadow-orange-600/30'
+                      : 'bg-stone-900/80 text-stone-300 hover:text-white border border-orange-500/20'
+                  }`}
+                >
+                  <Trophy className="w-4 h-4 text-amber-400" />
+                  <span>Top 10 Customers</span>
                 </button>
               </>
             )}
@@ -566,28 +835,123 @@ export const ShowcaseShopView: React.FC<ShowcaseShopViewProps> = ({
             </div>
           )}
         </>
-      ) : (
+      ) : activeMode === 'orders' ? (
         /* Orders View (Customer or Owner / Staff) */
         <div className="p-6 rounded-3xl glass-panel space-y-6">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-4 border-b border-orange-500/20">
             <div>
-              <h2 className="text-xl font-bold text-white">
-                {currentUser.role === 'customer' ? 'My Order History' : 'All Customer Orders Management'}
+              <h2 className="text-xl font-bold text-white flex items-center gap-2">
+                {isStoreAdmin ? (
+                  <>
+                    <Truck className="w-5 h-5 text-orange-400" />
+                    <span>All Customer Orders Management</span>
+                  </>
+                ) : (
+                  <>
+                    <Clock className="w-5 h-5 text-orange-400" />
+                    <span>My Order History</span>
+                  </>
+                )}
               </h2>
               <p className="text-xs text-stone-400">
-                Track status: Pending → Preparing the order → Drop to courier → Completed
+                {isStoreAdmin
+                  ? 'Manage and process store orders: Pending → Preparing → Drop to Courier → Completed'
+                  : 'Track the delivery and fulfillment status of your clothing orders'}
               </p>
             </div>
-            <span className="text-xs px-3 py-1 rounded-full bg-orange-500/10 border border-orange-500/30 text-orange-400 font-mono">
-              {displayOrders.length} Orders
-            </span>
+            <div className="flex items-center gap-2">
+              <span className="text-xs px-3 py-1 rounded-full bg-orange-500/10 border border-orange-500/30 text-orange-400 font-mono">
+                {displayOrders.length} {displayOrders.length === 1 ? 'Order' : 'Orders'}
+              </span>
+            </div>
           </div>
 
-          {displayOrders.length === 0 ? (
+          {/* Admin Order Status Filter Tabs */}
+          {isStoreAdmin && (
+            <div className="flex flex-wrap items-center gap-1.5 pb-2 border-b border-stone-800/80">
+              {[
+                { id: 'all', label: 'All Orders', count: orders.length },
+                {
+                  id: 'pending',
+                  label: 'Pending (New)',
+                  count: orders.filter((o) => o.status === 'pending').length,
+                },
+                {
+                  id: 'preparing',
+                  label: 'Preparing',
+                  count: orders.filter((o) => o.status === 'preparing').length,
+                },
+                {
+                  id: 'dropped_to_courier',
+                  label: 'In Courier',
+                  count: orders.filter((o) => o.status === 'dropped_to_courier').length,
+                },
+                {
+                  id: 'completed',
+                  label: 'Completed',
+                  count: orders.filter((o) => o.status === 'completed').length,
+                },
+                {
+                  id: 'cancelled',
+                  label: 'Cancelled',
+                  count: orders.filter((o) => o.status === 'cancelled').length,
+                },
+              ].map((tab) => (
+                <button
+                  key={tab.id}
+                  onClick={() => setOrderStatusFilter(tab.id)}
+                  className={`px-3 py-1.5 rounded-xl text-xs font-semibold transition cursor-pointer flex items-center gap-1.5 ${
+                    orderStatusFilter === tab.id
+                      ? 'bg-orange-600 text-white shadow-sm'
+                      : 'bg-stone-900/80 text-stone-400 hover:text-white border border-stone-800'
+                  }`}
+                >
+                  <span>{tab.label}</span>
+                  <span className="px-1.5 py-0.5 rounded-full bg-stone-950/60 text-[10px] font-mono">
+                    {tab.count}
+                  </span>
+                </button>
+              ))}
+            </div>
+          )}
+
+          {isGuest && displayOrders.length === 0 ? (
+            <div className="text-center py-12 text-stone-400 space-y-3">
+              <ShoppingBag className="w-12 h-12 mx-auto text-orange-400 opacity-60" />
+              <p className="text-base font-bold text-white">Please sign in to view your orders</p>
+              <p className="text-xs max-w-sm mx-auto">
+                Sign in or create an account with your email or phone to track your package delivery and view receipts.
+              </p>
+              <button
+                onClick={() => onOpenAuth('login')}
+                className="mt-2 px-6 py-2.5 rounded-xl bg-gradient-to-r from-orange-600 to-amber-700 text-white font-bold text-xs shadow-md shadow-orange-600/30 hover:from-orange-500 hover:to-amber-600 transition cursor-pointer"
+              >
+                Sign In / Register
+              </button>
+            </div>
+          ) : displayOrders.length === 0 ? (
             <div className="text-center py-12 text-stone-400 space-y-2">
               <ShoppingBag className="w-10 h-10 mx-auto opacity-40 text-orange-400" />
-              <p className="text-sm">No orders found.</p>
-              <p className="text-xs">Browse the clothing showcase and add items to your bag to place an order.</p>
+              <p className="text-sm font-semibold text-white">
+                {isStoreAdmin
+                  ? orderStatusFilter === 'all'
+                    ? 'No store orders found yet.'
+                    : `No orders in "${orderStatusFilter.replace(/_/g, ' ')}" status.`
+                  : "You haven't placed any orders yet."}
+              </p>
+              <p className="text-xs">
+                {isStoreAdmin
+                  ? 'Orders placed via the Showcase Shop or POS counter will appear here.'
+                  : 'Browse our clothing showcase, add outfits to your bag, and checkout to see your orders here!'}
+              </p>
+              {!isStoreAdmin && (
+                <button
+                  onClick={() => setActiveMode('browse')}
+                  className="mt-2 px-4 py-2 rounded-xl bg-orange-600 hover:bg-orange-500 text-white text-xs font-bold transition cursor-pointer"
+                >
+                  Browse Showcase
+                </button>
+              )}
             </div>
           ) : (
             <div className="space-y-4">
@@ -720,6 +1084,131 @@ export const ShowcaseShopView: React.FC<ShowcaseShopViewProps> = ({
               })}
             </div>
           )}
+        </div>
+      ) : (
+        /* Top 10 Customers View - Simplified (Name Only + Date Filters) */
+        <div className="p-6 sm:p-8 rounded-3xl glass-panel space-y-6 animate-fade-in max-w-2xl mx-auto">
+          {/* Header */}
+          <div className="flex items-center justify-between pb-4 border-b border-orange-500/20">
+            <h2 className="text-xl sm:text-2xl font-black text-white flex items-center gap-2.5">
+              <Trophy className="w-5 h-5 text-orange-400" />
+              <span>Top 10 Customers</span>
+            </h2>
+          </div>
+
+          {/* Date Filter Buttons */}
+          <div className="space-y-3">
+            <div className="flex flex-wrap items-center gap-2.5">
+              <button
+                type="button"
+                onClick={() => setTopCustomerFilterType('month')}
+                className={`px-4 py-2.5 rounded-xl font-bold text-xs transition cursor-pointer flex items-center gap-2 ${
+                  topCustomerFilterType === 'month'
+                    ? 'bg-gradient-to-r from-orange-600 to-amber-700 text-white shadow-md'
+                    : 'bg-stone-900 border border-stone-800 text-stone-300 hover:text-white'
+                }`}
+              >
+                <Calendar className="w-4 h-4" />
+                <span>Select Month and Year</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setTopCustomerFilterType('custom')}
+                className={`px-4 py-2.5 rounded-xl font-bold text-xs transition cursor-pointer flex items-center gap-2 ${
+                  topCustomerFilterType === 'custom'
+                    ? 'bg-gradient-to-r from-orange-600 to-amber-700 text-white shadow-md'
+                    : 'bg-stone-900 border border-stone-800 text-stone-300 hover:text-white'
+                }`}
+              >
+                <Calendar className="w-4 h-4" />
+                <span>Custom Date Range</span>
+              </button>
+            </div>
+
+            {/* Select Month and Year Inputs */}
+            {topCustomerFilterType === 'month' && (
+              <div className="p-3.5 rounded-2xl bg-stone-950/60 border border-orange-500/20 flex flex-wrap items-center gap-3 text-xs animate-fade-in">
+                <span className="text-stone-300 font-medium">Month & Year:</span>
+                <input
+                  type="month"
+                  value={selectedMonth}
+                  onChange={(e) => setSelectedMonth(e.target.value)}
+                  className="px-3 py-2 rounded-xl bg-stone-900 border border-orange-500/30 text-white font-medium focus:outline-none focus:border-orange-500 cursor-pointer text-xs"
+                />
+                <select
+                  value={selectedMonth}
+                  onChange={(e) => setSelectedMonth(e.target.value)}
+                  className="px-3 py-2 rounded-xl bg-stone-900 border border-stone-800 text-stone-200 focus:outline-none cursor-pointer text-xs"
+                >
+                  {availableMonths.map((ym) => (
+                    <option key={ym} value={ym}>
+                      {formatMonthLabel(ym)}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
+
+            {/* Custom Date Range Inputs */}
+            {topCustomerFilterType === 'custom' && (
+              <div className="p-3.5 rounded-2xl bg-stone-950/60 border border-orange-500/20 flex flex-wrap items-center gap-3 text-xs animate-fade-in">
+                <div className="flex items-center gap-2">
+                  <span className="text-stone-400">Start Date:</span>
+                  <input
+                    type="date"
+                    value={customStartDate}
+                    onChange={(e) => setCustomStartDate(e.target.value)}
+                    className="px-3 py-1.5 rounded-xl bg-stone-900 border border-orange-500/30 text-white font-mono text-xs focus:outline-none focus:border-orange-500"
+                  />
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="text-stone-400">End Date:</span>
+                  <input
+                    type="date"
+                    value={customEndDate}
+                    onChange={(e) => setCustomEndDate(e.target.value)}
+                    className="px-3 py-1.5 rounded-xl bg-stone-900 border border-orange-500/30 text-white font-mono text-xs focus:outline-none focus:border-orange-500"
+                  />
+                </div>
+                {(customStartDate || customEndDate) && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setCustomStartDate('');
+                      setCustomEndDate('');
+                    }}
+                    className="px-3 py-1.5 rounded-xl bg-stone-800 hover:bg-stone-700 text-stone-300 hover:text-white transition cursor-pointer text-xs"
+                  >
+                    Clear
+                  </button>
+                )}
+              </div>
+            )}
+          </div>
+
+          {/* Top 10 Customers List (Name Only) */}
+          <div className="space-y-2">
+            {top10Customers.length === 0 ? (
+              <div className="text-center py-10 text-stone-400 rounded-2xl bg-stone-950/40 border border-stone-800">
+                <p className="text-sm font-semibold text-white">No customers found for this period</p>
+              </div>
+            ) : (
+              top10Customers.map((cust, idx) => (
+                <div
+                  key={cust.customerId}
+                  className="flex items-center gap-3.5 p-3.5 rounded-2xl bg-stone-950/70 border border-orange-500/20"
+                >
+                  <span className="w-8 h-8 rounded-xl bg-stone-900 border border-orange-500/30 text-orange-400 font-mono font-bold text-xs flex items-center justify-center shrink-0">
+                    {idx + 1}
+                  </span>
+                  <span className="font-bold text-sm sm:text-base text-white truncate">
+                    {cust.customerName}
+                  </span>
+                </div>
+              ))
+            )}
+          </div>
         </div>
       )}
 

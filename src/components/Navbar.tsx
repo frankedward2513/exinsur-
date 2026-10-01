@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { createPortal } from 'react-dom';
 import { useStore } from '../context/StoreContext';
 import {
   LayoutDashboard,
@@ -19,6 +20,7 @@ import {
   UserCheck,
   LogIn,
   UserPlus,
+  Clock,
 } from 'lucide-react';
 
 export type ActiveTab =
@@ -29,7 +31,8 @@ export type ActiveTab =
   | 'ai_chat'
   | 'showcase'
   | 'barcode'
-  | 'pos';
+  | 'pos'
+  | 'orders';
 
 interface NavbarProps {
   activeTab: ActiveTab;
@@ -55,7 +58,7 @@ export const Navbar: React.FC<NavbarProps> = ({
         { id: 'dashboard' as ActiveTab, label: 'Dashboard', icon: LayoutDashboard },
         { id: 'inventory' as ActiveTab, label: 'Inventory Management', icon: Boxes },
         { id: 'finance' as ActiveTab, label: 'Finance Management', icon: DollarSign },
-        { id: 'forecasting' as ActiveTab, label: 'Forecasting', icon: TrendingUp },
+        { id: 'forecasting' as ActiveTab, label: 'Sales Forecast', icon: TrendingUp },
         { id: 'ai_chat' as ActiveTab, label: 'Hi Im your AI Exins', icon: Sparkles },
         { id: 'showcase' as ActiveTab, label: 'Showcase Shop', icon: ShoppingBag },
         { id: 'pos' as ActiveTab, label: 'POS', icon: Store },
@@ -67,9 +70,10 @@ export const Navbar: React.FC<NavbarProps> = ({
         { id: 'showcase' as ActiveTab, label: 'Showcase Shop', icon: ShoppingBag },
       ];
     } else {
-      // Customer
+      // Customer has Showcase Shop and My Orders
       return [
         { id: 'showcase' as ActiveTab, label: 'Showcase Shop', icon: ShoppingBag },
+        { id: 'orders' as ActiveTab, label: 'My Orders', icon: Clock },
       ];
     }
   };
@@ -244,8 +248,23 @@ export const Navbar: React.FC<NavbarProps> = ({
                 </>
               ) : (
                 <>
+                  {currentUser.role === 'customer' && (
+                    <button
+                      onClick={() => onSelectTab('orders')}
+                      className={`flex items-center gap-1.5 p-1.5 sm:px-3 sm:py-2 rounded-xl transition cursor-pointer text-xs font-semibold ${
+                        activeTab === 'orders'
+                          ? 'bg-gradient-to-r from-orange-600 to-amber-700 text-white shadow-md border border-orange-400/40'
+                          : 'bg-stone-900/80 border border-orange-500/20 hover:border-orange-500/50 text-stone-200 hover:text-white'
+                      }`}
+                      title="View My Orders"
+                    >
+                      <Clock className="w-3.5 h-3.5 text-orange-400" />
+                      <span className="hidden sm:inline">My Orders</span>
+                    </button>
+                  )}
+
                   <button
-                    onClick={() => onOpenAuth('login')}
+                    onClick={() => (currentUser.role === 'customer' ? onSelectTab('orders') : onOpenAuth('login'))}
                     className="flex items-center gap-1.5 p-1.5 sm:px-3 sm:py-2 rounded-xl bg-stone-900/80 border border-orange-500/20 hover:border-orange-500/50 transition cursor-pointer"
                   >
                     <div className="p-1 rounded-lg bg-orange-500/20 text-orange-400">
@@ -290,94 +309,138 @@ export const Navbar: React.FC<NavbarProps> = ({
         </div>
       </div>
 
-      {/* Mobile Menu Dropdown */}
-      {mobileMenuOpen && (
-        <div className="lg:hidden border-t border-orange-500/20 bg-stone-950/98 backdrop-blur-2xl px-4 pt-3 pb-6 space-y-2 animate-fade-in shadow-2xl">
-          {currentUser.role === 'guest' || currentUser.isGuest || !currentUser.email ? (
-            <div className="p-4 rounded-2xl bg-stone-900/90 border border-orange-500/30 mb-3 space-y-3">
-              <div>
-                <p className="text-xs font-bold text-white">Welcome to JKsur+ Novaliches QC</p>
-                <p className="text-[11px] text-stone-400">
-                  Sign in or create an account to place orders & track clothing
-                </p>
-              </div>
-              <div className="grid grid-cols-2 gap-2">
+      {/* Mobile Menu Pop-up Modal Overlay rendered to document.body to avoid sticky nav backdrop-blur containing block */}
+      {mobileMenuOpen &&
+        typeof document !== 'undefined' &&
+        createPortal(
+          <div
+            className="fixed inset-0 z-[100] lg:hidden flex items-center justify-center p-4 sm:p-6 bg-black/80 backdrop-blur-md animate-fade-in"
+            onClick={() => setMobileMenuOpen(false)}
+          >
+            <div
+              className="relative w-full max-w-sm max-h-[82vh] overflow-y-auto bg-stone-900/98 border border-orange-500/30 rounded-3xl p-5 shadow-2xl backdrop-blur-2xl flex flex-col space-y-4 my-auto select-none"
+              onClick={(e) => e.stopPropagation()}
+            >
+              {/* Pop-up Header */}
+              <div className="flex items-center justify-between pb-3 border-b border-orange-500/20">
+                <div>
+                  <span className="font-black text-lg tracking-wider text-orange-500 font-sans">
+                    JKsur+ Menu
+                  </span>
+                  <p className="text-[10px] text-stone-400 italic">Select destination</p>
+                </div>
                 <button
-                  onClick={() => {
-                    onOpenAuth('login');
-                    setMobileMenuOpen(false);
-                  }}
-                  className="w-full text-xs font-semibold py-2.5 px-3 rounded-xl border border-orange-500/40 bg-stone-950 hover:bg-stone-800 text-stone-200 hover:text-white text-center transition"
+                  type="button"
+                  onClick={() => setMobileMenuOpen(false)}
+                  className="p-2 rounded-xl text-stone-400 hover:text-white hover:bg-stone-800 transition cursor-pointer"
+                  aria-label="Close Menu"
                 >
-                  Sign In
-                </button>
-                <button
-                  onClick={() => {
-                    onOpenAuth('signup');
-                    setMobileMenuOpen(false);
-                  }}
-                  className="w-full text-xs font-bold py-2.5 px-3 rounded-xl bg-gradient-to-r from-orange-600 to-amber-700 hover:from-orange-500 hover:to-amber-600 text-white text-center shadow-md transition"
-                >
-                  Create Account
+                  <X className="w-5 h-5" />
                 </button>
               </div>
-            </div>
-          ) : (
-            <div className="p-3 rounded-2xl bg-stone-900/80 border border-orange-500/20 mb-3 flex items-center justify-between">
-              <div className="min-w-0 pr-2">
-                <p className="text-[11px] text-stone-400">Logged in as</p>
-                <p className="text-sm font-semibold text-white truncate">{currentUser.displayName}</p>
-                <span className="text-[10px] uppercase font-mono px-2 py-0.5 rounded bg-orange-500/20 text-orange-400 inline-block mt-0.5">
-                  {currentUser.role}
-                </span>
-              </div>
-              <div className="flex items-center gap-1.5 shrink-0">
-                <button
-                  onClick={() => {
-                    onOpenAuth();
-                    setMobileMenuOpen(false);
-                  }}
-                  className="text-xs font-semibold px-3 py-1.5 rounded-lg bg-orange-600 hover:bg-orange-500 text-white transition"
-                >
-                  Account
-                </button>
-                <button
-                  onClick={() => {
-                    logout();
-                    setMobileMenuOpen(false);
-                  }}
-                  className="p-1.5 rounded-lg bg-red-950/60 border border-red-500/30 text-red-300 hover:text-white transition"
-                  title="Sign Out"
-                >
-                  <LogOut className="w-4 h-4" />
-                </button>
-              </div>
-            </div>
-          )}
 
-          {navItems.map((item) => {
-            const Icon = item.icon;
-            const isActive = activeTab === item.id;
-            return (
-              <button
-                key={item.id}
-                onClick={() => {
-                  onSelectTab(item.id);
-                  setMobileMenuOpen(false);
-                }}
-                className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-semibold transition ${
-                  isActive
-                    ? 'bg-gradient-to-r from-orange-600 to-amber-700 text-white'
-                    : 'text-stone-300 hover:bg-stone-800'
-                }`}
-              >
-                <Icon className={`w-5 h-5 ${isActive ? 'text-white' : 'text-orange-400'}`} />
-                <span>{item.label}</span>
-              </button>
-            );
-          })}
-        </div>
-      )}
+              {currentUser.role === 'guest' || currentUser.isGuest || !currentUser.email ? (
+                <div className="p-3.5 rounded-2xl bg-stone-950/80 border border-orange-500/30 space-y-2.5">
+                  <div>
+                    <p className="text-xs font-bold text-white">Welcome to JKsur+ Novaliches QC</p>
+                    <p className="text-[11px] text-stone-400">
+                      Sign in or create an account to place orders & track clothing
+                    </p>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <button
+                      onClick={() => {
+                        onOpenAuth('login');
+                        setMobileMenuOpen(false);
+                      }}
+                      className="w-full text-xs font-semibold py-2 px-3 rounded-xl border border-orange-500/40 bg-stone-900 hover:bg-stone-800 text-stone-200 hover:text-white text-center transition"
+                    >
+                      Sign In
+                    </button>
+                    <button
+                      onClick={() => {
+                        onOpenAuth('signup');
+                        setMobileMenuOpen(false);
+                      }}
+                      className="w-full text-xs font-bold py-2 px-3 rounded-xl bg-gradient-to-r from-orange-600 to-amber-700 hover:from-orange-500 hover:to-amber-600 text-white text-center shadow-md transition"
+                    >
+                      Create Account
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <div className="p-3 rounded-2xl bg-stone-950/80 border border-orange-500/20 flex items-center justify-between">
+                  <div className="min-w-0 pr-2">
+                    <p className="text-[10px] text-stone-400">Logged in as</p>
+                    <p className="text-xs font-semibold text-white truncate">{currentUser.displayName}</p>
+                    <span className="text-[9px] uppercase font-mono px-2 py-0.5 rounded bg-orange-500/20 text-orange-400 inline-block mt-0.5">
+                      {currentUser.role}
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    {currentUser.role === 'customer' && (
+                      <button
+                        onClick={() => {
+                          onSelectTab('orders');
+                          setMobileMenuOpen(false);
+                        }}
+                        className="text-xs font-semibold px-2.5 py-1 rounded-lg bg-orange-600 hover:bg-orange-500 text-white transition flex items-center gap-1 cursor-pointer"
+                      >
+                        <Clock className="w-3 h-3" />
+                        <span>My Orders</span>
+                      </button>
+                    )}
+                    <button
+                      onClick={() => {
+                        onOpenAuth();
+                        setMobileMenuOpen(false);
+                      }}
+                      className="text-xs font-semibold px-2.5 py-1 rounded-lg bg-stone-800 hover:bg-stone-700 text-white transition cursor-pointer"
+                    >
+                      Account
+                    </button>
+                    <button
+                      onClick={() => {
+                        logout();
+                        setMobileMenuOpen(false);
+                      }}
+                      className="p-1 rounded-lg bg-red-950/60 border border-red-500/30 text-red-300 hover:text-white transition"
+                      title="Sign Out"
+                    >
+                      <LogOut className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* Nav list */}
+              <div className="space-y-1.5 pt-1">
+                {navItems.map((item) => {
+                  const Icon = item.icon;
+                  const isActive = activeTab === item.id;
+                  return (
+                    <button
+                      key={item.id}
+                      onClick={() => {
+                        onSelectTab(item.id);
+                        setMobileMenuOpen(false);
+                      }}
+                      className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-xs sm:text-sm font-semibold transition cursor-pointer ${
+                        isActive
+                          ? 'bg-gradient-to-r from-orange-600 to-amber-700 text-white shadow-md'
+                          : 'text-stone-300 hover:bg-stone-800'
+                      }`}
+                    >
+                      <Icon className={`w-4 h-4 ${isActive ? 'text-white' : 'text-orange-400'}`} />
+                      <span>{item.label}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          </div>,
+          document.body
+        )}
     </nav>
   );
 };

@@ -1,6 +1,12 @@
 import React, { useState } from 'react';
 import { useStore } from '../context/StoreContext';
 import {
+  formatPhoneNumber,
+  isValidPhoneNumber,
+  isValidEmail,
+  isValidPassword,
+} from '../utils/validation';
+import {
   X,
   Lock,
   Mail,
@@ -21,7 +27,14 @@ interface AuthModalProps {
 }
 
 export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, initialTab = 'signup' }) => {
-  const { loginAs, signupAs, loginWithGoogleFast, completeGoogleSignUp, currentUser } = useStore();
+  const {
+    loginAs,
+    signupAs,
+    loginWithGoogleFast,
+    completeGoogleSignUp,
+    currentUser,
+    showFormAlert,
+  } = useStore();
   const [tab, setTab] = useState<'login' | 'signup'>(initialTab);
 
   React.useEffect(() => {
@@ -83,6 +96,10 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, initialTa
       setError('Please provide your Contact Phone number for courier delivery.');
       return;
     }
+    if (!isValidPhoneNumber(phone)) {
+      setError('Phone number must follow the format 0000-000-0000 (e.g. 0912-345-6789).');
+      return;
+    }
     if (!address.trim()) {
       setError('Please provide your Delivery Address.');
       return;
@@ -98,6 +115,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, initialTa
         address: address.trim(),
       });
       setGoogleStepUser(null);
+      showFormAlert('You have been successfully submitted the form!');
       onClose();
     } catch (err: any) {
       setError(err?.message || 'Failed to complete profile. Please try again.');
@@ -110,8 +128,13 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, initialTa
     e.preventDefault();
     setError(null);
 
-    if (!email.trim()) {
-      setError('Please enter your email / Gmail address.');
+    if (!email.trim() || !isValidEmail(email)) {
+      setError('Please enter a valid email address (e.g. name@gmail.com).');
+      return;
+    }
+
+    if (!password || !isValidPassword(password)) {
+      setError('Password must be at least 6 characters.');
       return;
     }
 
@@ -120,12 +143,12 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, initialTa
         setError('Please enter your Full Name.');
         return;
       }
-      if (!password || password.length < 6) {
-        setError('Password must be at least 6 characters.');
-        return;
-      }
       if (!phone.trim()) {
         setError('Please enter your Contact Phone number.');
+        return;
+      }
+      if (!isValidPhoneNumber(phone)) {
+        setError('Phone number must follow the format 0000-000-0000 (e.g. 0912-345-6789).');
         return;
       }
       if (!address.trim()) {
@@ -148,6 +171,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, initialTa
           provider: 'email',
         });
       }
+      showFormAlert('You have been successfully submitted the form!');
       onClose();
     } catch (err: any) {
       setError(err?.message || 'Authentication error. Please check your credentials.');
@@ -251,18 +275,22 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, initialTa
             </div>
 
             <div>
-              <label className="block text-xs font-semibold text-stone-300 mb-1">
-                Contact Phone *
-              </label>
+              <div className="flex items-center justify-between mb-1">
+                <label className="block text-xs font-semibold text-stone-300">
+                  Contact Phone *
+                </label>
+                <span className="text-[10px] text-amber-400 font-mono">Format: 0000-000-0000</span>
+              </div>
               <div className="relative">
                 <Phone className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-stone-400" />
                 <input
                   type="tel"
                   required
-                  placeholder="e.g. 0917-123-4567 or +63 9XX XXX XXXX"
+                  maxLength={13}
+                  placeholder="0000-000-0000 (e.g. 0912-345-6789)"
                   value={phone}
-                  onChange={(e) => setPhone(e.target.value)}
-                  className="w-full pl-10 pr-4 py-2.5 rounded-xl bg-stone-950/70 border border-orange-500/20 text-stone-100 placeholder:text-stone-500 text-sm focus:border-orange-500 focus:outline-none focus:ring-1 focus:ring-orange-500"
+                  onChange={(e) => setPhone(formatPhoneNumber(e.target.value))}
+                  className="w-full pl-10 pr-4 py-2.5 rounded-xl bg-stone-950/70 border border-orange-500/20 text-stone-100 placeholder:text-stone-500 text-sm font-mono focus:border-orange-500 focus:outline-none focus:ring-1 focus:ring-orange-500"
                 />
               </div>
             </div>
@@ -430,18 +458,22 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, initialTa
               {tab === 'signup' && (
                 <>
                   <div>
-                    <label className="block text-xs font-semibold text-stone-300 mb-1">
-                      Contact Phone *
-                    </label>
+                    <div className="flex items-center justify-between mb-1">
+                      <label className="block text-xs font-semibold text-stone-300">
+                        Contact Phone *
+                      </label>
+                      <span className="text-[10px] text-amber-400 font-mono">Format: 0000-000-0000</span>
+                    </div>
                     <div className="relative">
                       <Phone className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-stone-400" />
                       <input
                         type="tel"
                         required
-                        placeholder="e.g. 0917-123-4567"
+                        maxLength={13}
+                        placeholder="0000-000-0000 (e.g. 0912-345-6789)"
                         value={phone}
-                        onChange={(e) => setPhone(e.target.value)}
-                        className="w-full pl-10 pr-4 py-2.5 rounded-xl bg-stone-950/70 border border-orange-500/20 text-stone-100 placeholder:text-stone-500 text-sm focus:border-orange-500 focus:outline-none focus:ring-1 focus:ring-orange-500"
+                        onChange={(e) => setPhone(formatPhoneNumber(e.target.value))}
+                        className="w-full pl-10 pr-4 py-2.5 rounded-xl bg-stone-950/70 border border-orange-500/20 text-stone-100 placeholder:text-stone-500 text-sm font-mono focus:border-orange-500 focus:outline-none focus:ring-1 focus:ring-orange-500"
                       />
                     </div>
                   </div>

@@ -10,6 +10,7 @@ import { BarcodeView } from './components/BarcodeView';
 import { PosView } from './components/PosView';
 import { AiChatbotView } from './components/AiChatbotView';
 import { AuthModal } from './components/AuthModal';
+import { FormSuccessAlert } from './components/FormSuccessAlert';
 
 const MainLayout: React.FC = () => {
   const { currentUser, isDarkMode } = useStore();
@@ -98,17 +99,21 @@ const MainLayout: React.FC = () => {
 
           {activeTab === 'ai_chat' && currentUser.role === 'owner' && <AiChatbotView />}
 
-          {activeTab === 'showcase' && (
+          {(activeTab === 'showcase' || activeTab === 'orders') && (
             <ShowcaseShopView
               isCartOpen={cartDrawerOpen}
               setIsCartOpen={setCartDrawerOpen}
               onOpenAuth={handleOpenAuth}
+              initialMode={activeTab === 'orders' ? 'orders' : 'browse'}
             />
           )}
 
           {activeTab === 'pos' &&
             (currentUser.role === 'owner' || currentUser.role === 'staff') && <PosView />}
         </main>
+
+        {/* Form Submission Success Alert */}
+        <FormSuccessAlert />
 
         {/* Auth Modal */}
         <AuthModal

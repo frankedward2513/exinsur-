@@ -1,24 +1,44 @@
 import { initializeApp } from 'firebase/app';
 import { getAuth, GoogleAuthProvider, signInAnonymously, signInWithPopup } from 'firebase/auth';
-import { getFirestore, doc, getDocFromServer } from 'firebase/firestore';
+import { initializeFirestore, getFirestore, doc, getDocFromServer } from 'firebase/firestore';
 import firebaseConfig from '../../firebase-applet-config.json';
 
 // Initialize Firebase
 export const app = initializeApp(firebaseConfig);
-export const db = getFirestore(app, firebaseConfig.firestoreDatabaseId);
+
+// Initialize Firestore with experimentalForceLongPolling to avoid 10s WebChannel timeout in browser/iframe environments
+export const db = initializeFirestore(
+  app,
+  {
+    ...(typeof window !== 'undefined' ? { experimentalForceLongPolling: true } : {}),
+    ignoreUndefinedProperties: true,
+  },
+  firebaseConfig.firestoreDatabaseId
+);
 export const auth = getAuth(app);
 export const googleProvider = new GoogleAuthProvider();
 export { signInWithPopup };
 
-// Clean undefined values to prevent Firestore rejection
-export function cleanFirestoreData<T extends Record<string, any>>(data: T): T {
-  const cleaned: Record<string, any> = {};
-  for (const [key, value] of Object.entries(data)) {
-    if (value !== undefined) {
-      cleaned[key] = value;
-    }
+// Clean undefined values deeply to prevent Firestore rejection on nested objects/arrays
+export function cleanFirestoreData<T>(data: T): T {
+  if (data === null || data === undefined) {
+    return null as any;
   }
-  return cleaned as T;
+  if (Array.isArray(data)) {
+    return data
+      .filter((item) => item !== undefined)
+      .map((item) => (item !== null && typeof item === 'object' ? cleanFirestoreData(item) : item)) as any;
+  }
+  if (typeof data === 'object') {
+    const cleaned: Record<string, any> = {};
+    for (const [key, value] of Object.entries(data as Record<string, any>)) {
+      if (value !== undefined) {
+        cleaned[key] = value !== null && typeof value === 'object' ? cleanFirestoreData(value) : value;
+      }
+    }
+    return cleaned as T;
+  }
+  return data;
 }
 
 // Automatically ensure auth session

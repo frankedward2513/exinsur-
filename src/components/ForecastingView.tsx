@@ -2,7 +2,6 @@ import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { useStore } from '../context/StoreContext';
 import {
   TrendingUp,
-  Award,
   Calendar,
   Filter,
   Sliders,
@@ -16,10 +15,7 @@ import {
 export const ForecastingView: React.FC = () => {
   const { orders, transactions, categories, products } = useStore();
 
-  // 2 Tabs / Buttons
-  const [activeTab, setActiveTab] = useState<'ewma' | 'top_customers'>('ewma');
-
-  // ===================== 1. EWMA FORECASTING STATE =====================
+  // ===================== EWMA SALES FORECASTING STATE =====================
   const [alpha, setAlpha] = useState<number>(0.3); // alpha factor (0.1 to 0.9)
   const [forecastHorizon, setForecastHorizon] = useState<1 | 3 | 7>(3); // 1, 3, or 7 days ahead
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
@@ -153,14 +149,13 @@ export const ForecastingView: React.FC = () => {
 
   // Auto-scroll to latest (showing 7 actual days + forecast horizon)
   useEffect(() => {
-    if (activeTab !== 'ewma') return;
     const timer = setTimeout(() => {
       if (chartScrollRef.current) {
         chartScrollRef.current.scrollLeft = chartScrollRef.current.scrollWidth;
       }
     }, 60);
     return () => clearTimeout(timer);
-  }, [forecastHorizon, activeTab, selectedCategory, containerWidth]);
+  }, [forecastHorizon, selectedCategory, containerWidth]);
 
   // Visible dates count = 7 actual sales + forecast horizon (1 => 8, 3 => 10, 7 => 14)
   const visibleDatesCount = 7 + forecastHorizon;
@@ -200,84 +195,31 @@ export const ForecastingView: React.FC = () => {
   const lastHistoryIdx = ewmaData.historyPoints.length - 1;
   const dividerX = getEwmaX(lastHistoryIdx) + pointGap / 2;
 
-  // ===================== 2. TOP 10 CUSTOMER SPENDERS =====================
-  const top10Customers = useMemo(() => {
-    const customerMap: Record<string, { name: string; totalOrders: number; totalSpent: number }> = {};
-
-    orders.forEach((o) => {
-      if (o.status !== 'cancelled') {
-        const name = o.customerName?.trim() || 'Online Customer';
-        if (!customerMap[name]) {
-          customerMap[name] = { name, totalOrders: 0, totalSpent: 0 };
-        }
-        customerMap[name].totalOrders += 1;
-        customerMap[name].totalSpent += o.totalAmount;
-      }
-    });
-
-    const list = Object.values(customerMap);
-    list.sort((a, b) => b.totalSpent - a.totalSpent);
-    return list.slice(0, 10);
-  }, [orders]);
-
   return (
     <div className="space-y-6 animate-fade-in pb-16">
-      {/* 2 Main Tabs */}
-      <div className="p-3 rounded-2xl glass-panel flex flex-wrap items-center gap-2">
-        <button
-          onClick={() => setActiveTab('ewma')}
-          className={`flex-1 min-w-[200px] py-3 px-4 rounded-xl font-bold text-xs flex items-center justify-center gap-2 transition cursor-pointer ${
-            activeTab === 'ewma'
-              ? 'bg-gradient-to-r from-orange-600 to-amber-700 text-white shadow-md'
-              : 'text-stone-300 hover:bg-stone-800'
-          }`}
-        >
-          <TrendingUp className="w-4 h-4 text-orange-400" />
-          <span>EWMA Sales Forecasting</span>
-        </button>
+      {/* Controls Bar: Alpha factor, Forecast Horizon, Category Filter */}
+      <div className="p-6 rounded-3xl glass-panel space-y-4">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-orange-500/20">
+          <div>
+            <h2 className="text-xl font-extrabold text-white flex items-center gap-2">
+              <TrendingUp className="w-5 h-5 text-orange-400" />
+              <span>Sales Forecast (EWMA Momentum Model)</span>
+            </h2>
+            <p className="text-xs text-stone-400 font-mono">
+              Sₜ = α·Yₜ + (1 - α)·Sₜ₋₁ (Predicts upcoming store sales using historical momentum)
+            </p>
+          </div>
 
-        <button
-          onClick={() => setActiveTab('top_customers')}
-          className={`flex-1 min-w-[200px] py-3 px-4 rounded-xl font-bold text-xs flex items-center justify-center gap-2 transition cursor-pointer ${
-            activeTab === 'top_customers'
-              ? 'bg-gradient-to-r from-orange-600 to-amber-700 text-white shadow-md'
-              : 'text-stone-300 hover:bg-stone-800'
-          }`}
-        >
-          <Award className="w-4 h-4 text-orange-400" />
-          <span>Top 10 Customer Spenders</span>
-          <span className="px-1.5 py-0.5 rounded-full bg-stone-950/60 text-[10px] font-mono">
-            {top10Customers.length}
-          </span>
-        </button>
-      </div>
+          {/* Smoothed Forecast Summary Badge */}
+          <div className="px-4 py-2 rounded-xl bg-orange-500/10 border border-orange-500/30 text-right">
+            <p className="text-[10px] text-stone-400 uppercase font-mono">Current Predicted Level</p>
+            <p className="text-lg font-black text-orange-400 font-mono">
+              ₱{ewmaData.currentSmoothedLevel.toLocaleString()} / day
+            </p>
+          </div>
+        </div>
 
-      {/* ===================== TAB 1: EWMA SALES FORECASTING ===================== */}
-      {activeTab === 'ewma' && (
-        <div className="space-y-6">
-          {/* Controls Bar: Alpha factor, Forecast Horizon, Category Filter */}
-          <div className="p-6 rounded-3xl glass-panel space-y-4">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-orange-500/20">
-              <div>
-                <h2 className="text-lg font-bold text-white flex items-center gap-2">
-                  <TrendingUp className="w-5 h-5 text-orange-400" />
-                  <span>Exponentially Weighted Moving Average (EWMA) Sales Model</span>
-                </h2>
-                <p className="text-xs text-stone-400 font-mono">
-                  Sₜ = α·Yₜ + (1 - α)·Sₜ₋₁ (Weights recent sales momentum smoothly)
-                </p>
-              </div>
-
-              {/* Smoothed Forecast Summary Badge */}
-              <div className="px-4 py-2 rounded-xl bg-orange-500/10 border border-orange-500/30 text-right">
-                <p className="text-[10px] text-stone-400 uppercase font-mono">Current Predicted Level</p>
-                <p className="text-lg font-black text-orange-400 font-mono">
-                  ₱{ewmaData.currentSmoothedLevel.toLocaleString()} / day
-                </p>
-              </div>
-            </div>
-
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 text-xs pt-1">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 text-xs pt-1">
               {/* Alpha Factor Selection */}
               <div className="space-y-1.5 bg-stone-950/70 p-3 rounded-2xl border border-orange-500/20">
                 <div className="flex justify-between font-medium">
@@ -602,97 +544,5 @@ export const ForecastingView: React.FC = () => {
             )}
           </div>
         </div>
-      )}
-
-      {/* ===================== TAB 2: TOP 10 CUSTOMER SPENDERS ===================== */}
-      {activeTab === 'top_customers' && (
-        <div className="p-6 rounded-3xl glass-panel space-y-6">
-          <div className="flex items-center justify-between pb-3 border-b border-orange-500/20">
-            <div>
-              <h2 className="text-lg font-bold text-white flex items-center gap-2">
-                <Award className="w-5 h-5 text-orange-400" />
-                <span>Top 10 Valued Customer Spenders</span>
-              </h2>
-              <p className="text-xs text-stone-400">
-                Ranked by total expenditure across all sales channels. Top 3 receive special VIP recognition badges.
-              </p>
-            </div>
-            <span className="text-xs px-3 py-1 rounded-full bg-orange-500/10 border border-orange-500/30 text-orange-400 font-mono">
-              {top10Customers.length} Spenders
-            </span>
-          </div>
-
-          {top10Customers.length === 0 ? (
-            <div className="text-center py-12 text-stone-400 space-y-2">
-              <Award className="w-12 h-12 mx-auto text-stone-600" />
-              <p className="text-sm">No customer purchase records recorded yet.</p>
-              <p className="text-xs">
-                As customers place orders or shop via POS, top spenders will automatically be calculated and awarded #1, #2, #3 badges here.
-              </p>
-            </div>
-          ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {top10Customers.map((cust, idx) => {
-                const rank = idx + 1;
-                const isTop3 = rank <= 3;
-
-                return (
-                  <div
-                    key={cust.name}
-                    className={`p-4 rounded-2xl flex items-center justify-between border transition ${
-                      rank === 1
-                        ? 'bg-gradient-to-r from-amber-950/70 via-stone-900 to-amber-950/40 border-amber-500/60 shadow-lg shadow-amber-500/10'
-                        : rank === 2
-                        ? 'bg-stone-900/90 border-stone-500/50'
-                        : rank === 3
-                        ? 'bg-stone-900/90 border-amber-700/50'
-                        : 'bg-stone-950/60 border-stone-800'
-                    }`}
-                  >
-                    <div className="flex items-center gap-3.5">
-                      {/* Rank Badge: #1, #2, #3 */}
-                      <div
-                        className={`w-10 h-10 rounded-2xl flex items-center justify-center font-black text-sm shadow-md ${
-                          rank === 1
-                            ? 'bg-gradient-to-br from-amber-400 to-yellow-600 text-stone-950 font-black'
-                            : rank === 2
-                            ? 'bg-gradient-to-br from-slate-200 to-slate-400 text-stone-950 font-black'
-                            : rank === 3
-                            ? 'bg-gradient-to-br from-amber-700 to-amber-900 text-white font-black'
-                            : 'bg-stone-800 text-stone-400 font-mono'
-                        }`}
-                      >
-                        #{rank}
-                      </div>
-
-                      <div>
-                        <div className="flex items-center gap-2">
-                          <h4 className="font-bold text-white text-sm">{cust.name}</h4>
-                          {isTop3 && (
-                            <span className="text-xs">
-                              {rank === 1 ? '🥇 VIP Gold' : rank === 2 ? '🥈 Silver' : '🥉 Bronze'}
-                            </span>
-                          )}
-                        </div>
-                        <p className="text-xs text-stone-400">
-                          {cust.totalOrders} {cust.totalOrders === 1 ? 'order' : 'orders'} completed
-                        </p>
-                      </div>
-                    </div>
-
-                    <div className="text-right">
-                      <p className="text-[10px] uppercase text-stone-400 font-mono">Total Spent</p>
-                      <p className="text-base font-black text-orange-400 font-mono">
-                        ₱{cust.totalSpent.toLocaleString()}
-                      </p>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          )}
-        </div>
-      )}
-    </div>
   );
 };

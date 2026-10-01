@@ -99,6 +99,9 @@ interface StoreContextType {
   clearSelectedCart: () => void;
   cartNotification: string | null;
   clearCartNotification: () => void;
+  formAlert: string | null;
+  showFormAlert: (message?: string) => void;
+  clearFormAlert: () => void;
 
   // Bale Management
   addBale: (bale: Omit<Bale, 'id' | 'totalSalesMade' | 'createdAt'>) => Promise<void>;
@@ -174,8 +177,13 @@ const StoreContext = createContext<StoreContextType | undefined>(undefined);
   // Helper for deterministic roles
 export function determineRole(email: string): UserRole {
   const normalized = email.trim().toLowerCase();
-  if (normalized === 'villotafrankedward@gmail.com') return 'owner';
-  if (normalized === 'frankvillota905@gmail.com' || normalized === 'frankvillota905@gmail.om') return 'staff';
+  if (
+    normalized === 'villotafrankedward@gmail.com' ||
+    normalized === 'frankvillota905@gmail.com' ||
+    normalized === 'frankvillota905@gmail.om'
+  ) {
+    return 'owner';
+  }
   return 'customer';
 }
 
@@ -217,6 +225,15 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       try {
         const parsed = JSON.parse(saved);
         if (parsed && parsed.email && parsed.role && parsed.role !== 'guest') {
+          // Frank Villota is the Owner
+          if (
+            parsed.email.toLowerCase() === 'frankvillota905@gmail.com' ||
+            parsed.email.toLowerCase() === 'frankvillota905@gmail.om' ||
+            parsed.email.toLowerCase() === 'villotafrankedward@gmail.com'
+          ) {
+            parsed.role = 'owner';
+            parsed.displayName = parsed.displayName || 'Frank Edward Villota (Owner)';
+          }
           return parsed;
         }
       } catch {
@@ -230,37 +247,24 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     const normalized = email.trim().toLowerCase();
     const pwd = (password || '').trim();
 
-    // 1. Strict Owner Authentication
-    if (normalized === 'villotafrankedward@gmail.com') {
+    // 1. Strict Owner Authentication (Frank Villota)
+    if (
+      normalized === 'villotafrankedward@gmail.com' ||
+      normalized === 'frankvillota905@gmail.com' ||
+      normalized === 'frankvillota905@gmail.om'
+    ) {
       if (pwd !== '12345678') {
         throw new Error('Incorrect password for Owner account.');
       }
       const ownerUser: UserProfile = {
         uid: 'owner-frank',
-        email: 'villotafrankedward@gmail.com',
+        email: normalized,
         displayName: 'Frank Edward Villota (Owner)',
         role: 'owner',
         isGuest: false,
       };
       setCurrentUser(ownerUser);
       localStorage.setItem('exins_user', JSON.stringify(ownerUser));
-      return true;
-    }
-
-    // 2. Strict Staff Authentication
-    if (normalized === 'frankvillota905@gmail.com' || normalized === 'frankvillota905@gmail.om') {
-      if (pwd !== '12345678') {
-        throw new Error('Incorrect password for Staff account.');
-      }
-      const staffUser: UserProfile = {
-        uid: 'staff-frank',
-        email: 'Frankvillota905@gmail.com',
-        displayName: 'Frank Villota (Staff)',
-        role: 'staff',
-        isGuest: false,
-      };
-      setCurrentUser(staffUser);
-      localStorage.setItem('exins_user', JSON.stringify(staffUser));
       return true;
     }
 
@@ -357,11 +361,15 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       const displayName = gUser.displayName || 'Customer';
       const uid = gUser.uid;
 
-      // Check if this email is owner or staff
-      if (email === 'villotafrankedward@gmail.com') {
+      // Check if this email is owner (Frank Villota)
+      if (
+        email === 'villotafrankedward@gmail.com' ||
+        email === 'frankvillota905@gmail.com' ||
+        email === 'frankvillota905@gmail.om'
+      ) {
         const ownerUser: UserProfile = {
           uid: 'owner-frank',
-          email: 'villotafrankedward@gmail.com',
+          email,
           displayName: displayName || 'Frank Edward Villota (Owner)',
           role: 'owner',
           isGuest: false,
@@ -370,20 +378,6 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         setCurrentUser(ownerUser);
         localStorage.setItem('exins_user', JSON.stringify(ownerUser));
         return { needsDetails: false, userProfile: ownerUser };
-      }
-
-      if (email === 'frankvillota905@gmail.com' || email === 'frankvillota905@gmail.om') {
-        const staffUser: UserProfile = {
-          uid: 'staff-frank',
-          email: 'Frankvillota905@gmail.com',
-          displayName: displayName || 'Frank Villota (Staff)',
-          role: 'staff',
-          isGuest: false,
-          provider: 'google',
-        };
-        setCurrentUser(staffUser);
-        localStorage.setItem('exins_user', JSON.stringify(staffUser));
-        return { needsDetails: false, userProfile: staffUser };
       }
 
       // Check if existing customer profile already has phone and address
@@ -491,8 +485,22 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     return saved ? JSON.parse(saved) : [];
   });
   const [cartNotification, setCartNotification] = useState<string | null>(null);
-
   const clearCartNotification = () => setCartNotification(null);
+
+  const [formAlert, setFormAlert] = useState<string | null>(null);
+  const showFormAlert = (message = 'You have been successfully submitted the form!') => {
+    setFormAlert(message);
+  };
+  const clearFormAlert = () => setFormAlert(null);
+
+  useEffect(() => {
+    if (formAlert) {
+      const timer = setTimeout(() => {
+        setFormAlert(null);
+      }, 4000);
+      return () => clearTimeout(timer);
+    }
+  }, [formAlert]);
 
   // Sync state to localStorage cache
   useEffect(() => {
@@ -646,8 +654,41 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       (snapshot) => {
         const loaded: Order[] = [];
         snapshot.forEach((d) => loaded.push({ ...(d.data() as Order), id: d.id }));
-        setOrders(loaded);
-        localStorage.setItem('exins_orders', JSON.stringify(loaded));
+
+        setOrders((prev) => {
+          const orderMap = new Map<string, Order>();
+          // 1. Existing orders in memory
+          prev.forEach((o) => orderMap.set(o.id, o));
+
+          // 2. Existing orders in localStorage cache
+          try {
+            const saved = localStorage.getItem('exins_orders');
+            if (saved) {
+              const localList: Order[] = JSON.parse(saved);
+              localList.forEach((o) => {
+                if (!orderMap.has(o.id)) orderMap.set(o.id, o);
+              });
+            }
+          } catch {
+            // ignore
+          }
+
+          // 3. Remote orders from Firestore (source of truth for synced docs)
+          loaded.forEach((o) => orderMap.set(o.id, o));
+
+          const merged = Array.from(orderMap.values());
+          localStorage.setItem('exins_orders', JSON.stringify(merged));
+
+          // If there are locally created orders not yet in Firestore, sync them now
+          const missingInCloud = merged.filter((o) => !loaded.some((ld) => ld.id === o.id));
+          if (missingInCloud.length > 0) {
+            missingInCloud.forEach((o) => {
+              setDoc(doc(db, 'orders', o.id), cleanFirestoreData(o)).catch(console.warn);
+            });
+          }
+
+          return merged;
+        });
       },
       (error) => handleFirestoreError(error, OperationType.LIST, 'orders')
     );
@@ -749,28 +790,140 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     );
   }, [products, expenses, bales]);
 
-  // Auto-reconcile orphaned orders: if transactions exist but an order's transaction was deleted, purge that order from DB and state
+  // Auto-heal orders: if a transaction exists with an order reference, ensure the order is present in orders state and Firestore
   useEffect(() => {
-    if (transactions.length > 0 && orders.length > 0) {
-      const orphanedOrders = orders.filter((o) => {
-        const hasTx = transactions.some(
-          (t) => t.orderId === o.id || (t.description && t.description.includes(o.orderNumber))
-        );
-        return !hasTx;
+    if (transactions.length > 0) {
+      const missingTxs = transactions.filter((tx) => {
+        if (tx.flowType !== 'inflow') return false;
+        const linkedId = tx.orderId;
+        if (!linkedId) return false;
+        return !orders.some((o) => o.id === linkedId);
       });
 
-      if (orphanedOrders.length > 0) {
-        setOrders((prev) => {
-          const next = prev.filter((o) => !orphanedOrders.some((orph) => orph.id === o.id));
-          localStorage.setItem('exins_orders', JSON.stringify(next));
-          return next;
-        });
-        orphanedOrders.forEach((o) => {
-          deleteDoc(doc(db, 'orders', o.id)).catch(console.warn);
+      if (missingTxs.length > 0) {
+        missingTxs.forEach(async (tx) => {
+          const isPos = tx.category === 'POS Sales' || tx.orderId?.startsWith('pos_');
+          const ordNumMatch = tx.description?.match(/#(EX-[0-9]+|POS-[0-9]+)/);
+          const orderNum = ordNumMatch
+            ? ordNumMatch[1]
+            : isPos
+            ? `POS-${Date.now().toString().slice(-6)}`
+            : `EX-${Date.now().toString().slice(-8)}`;
+
+          const custNameMatch = tx.description?.match(/\(([^)]+)\)/);
+          const custName = custNameMatch
+            ? custNameMatch[1]
+            : isPos
+            ? 'Walk-in Customer'
+            : 'Online Customer';
+
+          const matchedCust = customers.find(
+            (c) => c.displayName.toLowerCase() === custName.toLowerCase()
+          );
+
+          const matchedLog = itemStatusLogs.find(
+            (l) => l.notes && l.notes.includes(orderNum)
+          );
+
+          const matchedProduct = matchedLog
+            ? products.find((p) => p.id === matchedLog.productId)
+            : null;
+
+          const restoredOrder: Order = {
+            id: tx.orderId!,
+            orderNumber: orderNum,
+            userId: matchedCust?.uid,
+            customerName: custName,
+            contactNumber: matchedCust?.phone || 'N/A',
+            email: matchedCust?.email || (isPos ? 'pos@exins.shop' : 'customer@exins.shop'),
+            address: matchedCust?.address || (isPos ? 'In-store Purchase' : 'Standard Delivery'),
+            items: matchedLog
+              ? [
+                  {
+                    productId: matchedLog.productId,
+                    name: matchedLog.productName,
+                    size: matchedProduct?.size || 'Free Size',
+                    price: matchedProduct?.sellingPrice || tx.inflow || 0,
+                    costPrice: matchedProduct?.costPrice || 0,
+                    quantity: matchedLog.quantity || 1,
+                    imageUrl: matchedProduct?.imageUrl || '',
+                    baleCode: matchedProduct?.baleCode || '',
+                  },
+                ]
+              : [
+                  {
+                    productId: 'recovered',
+                    name: isPos ? 'Store Item' : 'Online Apparel',
+                    size: 'Free Size',
+                    price: tx.inflow || 0,
+                    costPrice: 0,
+                    quantity: 1,
+                    imageUrl: '',
+                    baleCode: '',
+                  },
+                ],
+            totalAmount: matchedProduct ? matchedProduct.sellingPrice : tx.inflow || 0,
+            paymentType: (tx.inflow || 0) < 500 && !isPos ? 'down_payment' : 'pay_now',
+            downPaymentAmount: (tx.inflow || 0) < 500 && !isPos ? tx.inflow || 100 : 0,
+            remainingBalance:
+              (tx.inflow || 0) < 500 && !isPos && matchedProduct
+                ? Math.max(0, matchedProduct.sellingPrice - (tx.inflow || 0))
+                : 0,
+            status: isPos ? 'completed' : 'pending',
+            orderSource: isPos ? 'pos' : 'online',
+            paymentMethod: tx.paymentMethod || 'gcash',
+            courier: 'jnt',
+            shippingNote: 'Customer shoulders shipping fee directly upon courier delivery.',
+            createdAt: tx.createdAt || new Date().toISOString(),
+            updatedAt: new Date().toISOString(),
+          };
+
+          setOrders((prev) => {
+            const updated = [restoredOrder, ...prev.filter((o) => o.id !== restoredOrder.id)];
+            localStorage.setItem('exins_orders', JSON.stringify(updated));
+            return updated;
+          });
+          await setDoc(doc(db, 'orders', restoredOrder.id), cleanFirestoreData(restoredOrder)).catch(
+            console.warn
+          );
         });
       }
     }
-  }, [transactions, orders]);
+  }, [transactions, orders, customers, itemStatusLogs, products]);
+
+  // Ensure customer's placed orders are indexed in localStorage for fast, resilient "My Orders" lookup
+  useEffect(() => {
+    if (currentUser && !currentUser.isGuest && currentUser.role === 'customer' && orders.length > 0) {
+      try {
+        const placed: string[] = JSON.parse(localStorage.getItem('exins_placed_orders') || '[]');
+        const uEmail = (currentUser.email || '').toLowerCase().trim();
+        const uPhone = (currentUser.phone || '').replace(/\D/g, '').slice(-10);
+        const uUid = (currentUser.uid || '').trim();
+
+        let updated = false;
+        orders.forEach((o) => {
+          const matchUid = uUid && o.userId === uUid;
+          const matchEmail = uEmail && o.email && o.email.toLowerCase().trim() === uEmail;
+          const matchPhone =
+            uPhone &&
+            uPhone.length >= 7 &&
+            o.contactNumber &&
+            o.contactNumber.replace(/\D/g, '').slice(-10) === uPhone;
+
+          if ((matchUid || matchEmail || matchPhone) && !placed.includes(o.id)) {
+            placed.push(o.id);
+            updated = true;
+          }
+        });
+
+        if (updated) {
+          localStorage.setItem('exins_placed_orders', JSON.stringify(placed));
+        }
+      } catch {
+        // ignore
+      }
+    }
+  }, [currentUser, orders]);
 
   // Cart operations
   const addToCart = (product: Product, quantity = 1) => {
@@ -1214,15 +1367,81 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       100000 + Math.random() * 900000
     )}`;
 
+    const sanitizedItems: OrderItem[] = orderData.items.map((it) => ({
+      productId: it.productId,
+      name: it.name,
+      size: it.size || 'Free Size',
+      price: Number(it.price) || 0,
+      costPrice: Number(it.costPrice) || 0,
+      quantity: Number(it.quantity) || 1,
+      imageUrl: it.imageUrl || '',
+      baleCode: it.baleCode || '',
+    }));
+
     const newOrder: Order = {
       ...orderData,
       id,
       orderNumber,
+      userId: currentUser?.uid || (orderData as any).userId || '',
+      customerName: (orderData.customerName || currentUser?.displayName || 'Customer').trim(),
+      contactNumber: (orderData.contactNumber || currentUser?.phone || 'N/A').trim(),
+      email: (orderData.email || currentUser?.email || 'customer@exins.shop').trim(),
+      address: (orderData.address || currentUser?.address || 'Standard Delivery').trim(),
+      items: sanitizedItems,
+      totalAmount: Number(orderData.totalAmount) || 0,
+      paymentType: orderData.paymentType || 'pay_now',
+      downPaymentAmount: orderData.paymentType === 'down_payment' ? (orderData.downPaymentAmount || 100) : 0,
+      remainingBalance: Number(orderData.remainingBalance) || 0,
+      receiptUrl: orderData.receiptUrl || '',
+      courier: orderData.courier || 'jnt',
+      shippingNote: orderData.shippingNote || 'Customer shoulders shipping fee directly upon courier delivery.',
       status: 'pending',
+      orderSource: 'online',
+      paymentMethod: orderData.paymentMethod || 'gcash',
       createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
     };
 
-    setOrders((prev) => [newOrder, ...prev]);
+    // Update in-memory state and localStorage immediately
+    setOrders((prev) => {
+      const updated = [newOrder, ...prev.filter((o) => o.id !== id)];
+      localStorage.setItem('exins_orders', JSON.stringify(updated));
+      return updated;
+    });
+
+    // Store order id locally so customer always sees it on this device under My Orders
+    try {
+      const placed: string[] = JSON.parse(localStorage.getItem('exins_placed_orders') || '[]');
+      if (!placed.includes(id)) {
+        placed.push(id);
+        localStorage.setItem('exins_placed_orders', JSON.stringify(placed));
+      }
+    } catch {
+      // ignore
+    }
+
+    // Ensure customer info is recorded in customers collection and state so owner sees who ordered
+    const custProfile: UserProfile = {
+      uid: newOrder.userId || `cust_${Date.now()}`,
+      email: newOrder.email,
+      displayName: newOrder.customerName,
+      phone: newOrder.contactNumber,
+      address: newOrder.address,
+      role: 'customer',
+      createdAt: new Date().toISOString(),
+    };
+    setCustomers((prev) => {
+      const idx = prev.findIndex(
+        (c) => c.uid === custProfile.uid || c.email.toLowerCase() === custProfile.email.toLowerCase()
+      );
+      if (idx >= 0) {
+        const updated = [...prev];
+        updated[idx] = { ...updated[idx], phone: custProfile.phone, address: custProfile.address, displayName: custProfile.displayName };
+        return updated;
+      }
+      return [custProfile, ...prev];
+    });
+    setDoc(doc(db, 'customers', custProfile.uid), cleanFirestoreData(custProfile)).catch(console.warn);
 
     // Deduct inventory quantities and credit bale sales
     orderData.items.forEach((item) => {
@@ -1288,8 +1507,8 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     setTransactions((prev) => [newTx, ...prev]);
 
     try {
-      await setDoc(doc(db, 'orders', id), newOrder);
-      await setDoc(doc(db, 'transactions', txId), newTx);
+      await setDoc(doc(db, 'orders', id), cleanFirestoreData(newOrder));
+      await setDoc(doc(db, 'transactions', txId), cleanFirestoreData(newTx));
     } catch (err) {
       handleFirestoreError(err, OperationType.CREATE, `orders/${id}`);
     }
@@ -1447,8 +1666,8 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     setTransactions((prev) => [newTx, ...prev]);
 
     try {
-      await setDoc(doc(db, 'orders', id), newOrder);
-      await setDoc(doc(db, 'transactions', txId), newTx);
+      await setDoc(doc(db, 'orders', id), cleanFirestoreData(newOrder));
+      await setDoc(doc(db, 'transactions', txId), cleanFirestoreData(newTx));
     } catch (err) {
       handleFirestoreError(err, OperationType.CREATE, `orders/${id}`);
     }
@@ -1583,6 +1802,9 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         clearSelectedCart,
         cartNotification,
         clearCartNotification,
+        formAlert,
+        showFormAlert,
+        clearFormAlert,
         addBale,
         updateBale,
         deleteBale,
