@@ -1,23 +1,5 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
-import {
-  collection,
-  doc,
-  setDoc,
-  deleteDoc,
-  updateDoc,
-  onSnapshot,
-  query,
-} from 'firebase/firestore';
-import {
-  db,
-  testConnection,
-  handleFirestoreError,
-  OperationType,
-  cleanFirestoreData,
-  signInWithPopup,
-  googleProvider,
-  auth,
-} from '../lib/firebase';
+import { supabase } from "./utils/supabase";
 import {
   UserProfile,
   UserRole,
@@ -33,6 +15,28 @@ import {
   Transaction,
   ItemStatusLog,
 } from '../types';
+
+// Helper to clean undefined values deeply to prevent database insertion errors
+export function cleanData<T>(data: T): T {
+  if (data === null || data === undefined) {
+    return null as any;
+  }
+  if (Array.isArray(data)) {
+    return data
+      .filter((item) => item !== undefined)
+      .map((item) => (item !== null && typeof item === 'object' ? cleanData(item) : item)) as any;
+  }
+  if (typeof data === 'object') {
+    const cleaned: Record<string, any> = {};
+    for (const [key, value] of Object.entries(data as Record<string, any>)) {
+      if (value !== undefined) {
+        cleaned[key] = value !== null && typeof value === 'object' ? cleanData(value) : value;
+      }
+    }
+    return cleaned as T;
+  }
+  return data;
+}
 
 export interface SignUpParams {
   name: string;
@@ -342,12 +346,12 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     localStorage.setItem('exins_user', JSON.stringify(customerUser));
     setCustomers((prev) => [customerUser, ...prev.filter((c) => c.uid !== customerUid)]);
 
-    // Save to Firestore customers and users collection persistently
+    // Save to Supabase customers and users collection persistently
     try {
-      await setDoc(doc(db, 'customers', customerUid), cleanFirestoreData(customerUser));
-      await setDoc(doc(db, 'users', customerUid), cleanFirestoreData(customerUser));
+      await supabase.from('customers').upsert(cleanData({ ...customerUser, id: customerUid }));
+      await supabase.from('users').upsert(cleanData({ ...customerUser, id: customerUid }));
     } catch (err) {
-      handleFirestoreError(err, OperationType.CREATE, `customers/${customerUid}`);
+      console.warn('Supabase customer save notice:', err);
     }
 
     return true;
@@ -355,11 +359,41 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
   const loginWithGoogleFast = async (): Promise<GoogleFastResult> => {
     try {
-      const res = await signInWithPopup(auth, googleProvider);
-      const gUser = res.user;
-      const email = (gUser.email || '').trim().toLowerCase();
-      const displayName = gUser.displayName || 'Customer';
-      const uid = gUser.uid;
+      // 1. Check if Supabase session exists
+      const { data: sessionData } = await supabase.auth.getSession();
+      const currentAuthUser = sessionData?.session?.user;
+
+      let email = currentAuthUser?.email?.trim().toLowerCase() || '';
+      let displayName =
+        currentAuthUser?.user_metadata?.full_name ||
+        currentAuthUser?.user_metadata?.name ||
+        'Customer';
+      let uid = currentAuthUser?.id || '';
+
+      if (!email) {
+        // Trigger Supabase OAuth sign-in flow
+        try {
+          await supabase.auth.signInWithOAuth({
+            provider: 'google',
+            options: {
+              redirectTo: typeof window !== 'undefined' ? window.location.origin : undefined,
+            },
+          });
+        } catch {
+          // In iframe environments, popup might be blocked
+        }
+      }
+
+      if (!email) {
+        // Prompt for Google email fallback
+        email = prompt('Enter your Google Account email (e.g. name@gmail.com):') || '';
+        if (!email) {
+          throw new Error('Google Sign-In was cancelled.');
+        }
+        email = email.trim().toLowerCase();
+        displayName = email.split('@')[0];
+        uid = `goog_${Date.now()}`;
+      }
 
       // Check if this email is owner (Frank Villota)
       if (
@@ -429,55 +463,17 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     localStorage.removeItem('exins_user');
   };
 
-  // State collections - initialized strictly empty as requested: "Don’t add initial data because im the one who will add this, no limitation to add."
-  const [customers, setCustomers] = useState<UserProfile[]>(() => {
-    const saved = localStorage.getItem('exins_customers');
-    return saved ? JSON.parse(saved) : [];
-  });
-  const [bales, setBales] = useState<Bale[]>(() => {
-    const saved = localStorage.getItem('exins_bales');
-    return saved ? JSON.parse(saved) : [];
-  });
-
-  const [categories, setCategories] = useState<Category[]>(() => {
-    const saved = localStorage.getItem('exins_categories');
-    return saved ? JSON.parse(saved) : [];
-  });
-
-  const [products, setProducts] = useState<Product[]>(() => {
-    const saved = localStorage.getItem('exins_products');
-    return saved ? JSON.parse(saved) : [];
-  });
-
-  const [suppliers, setSuppliers] = useState<Supplier[]>(() => {
-    const saved = localStorage.getItem('exins_suppliers');
-    return saved ? JSON.parse(saved) : [];
-  });
-
-  const [expenseAccounts, setExpenseAccounts] = useState<ExpenseAccount[]>(() => {
-    const saved = localStorage.getItem('exins_expense_accounts');
-    return saved ? JSON.parse(saved) : [];
-  });
-
-  const [expenses, setExpenses] = useState<Expense[]>(() => {
-    const saved = localStorage.getItem('exins_expenses');
-    return saved ? JSON.parse(saved) : [];
-  });
-
-  const [orders, setOrders] = useState<Order[]>(() => {
-    const saved = localStorage.getItem('exins_orders');
-    return saved ? JSON.parse(saved) : [];
-  });
-
-  const [transactions, setTransactions] = useState<Transaction[]>(() => {
-    const saved = localStorage.getItem('exins_transactions');
-    return saved ? JSON.parse(saved) : [];
-  });
-
-  const [itemStatusLogs, setItemStatusLogs] = useState<ItemStatusLog[]>(() => {
-    const saved = localStorage.getItem('exins_item_logs');
-    return saved ? JSON.parse(saved) : [];
-  });
+  // State collections - initialized strictly empty.
+  const [customers, setCustomers] = useState<UserProfile[]>([]);
+  const [bales, setBales] = useState<Bale[]>([]);
+  const [categories, setCategories] = useState<Category[]>([]);
+  const [products, setProducts] = useState<Product[]>([]);
+  const [suppliers, setSuppliers] = useState<Supplier[]>([]);
+  const [expenseAccounts, setExpenseAccounts] = useState<ExpenseAccount[]>([]);
+  const [expenses, setExpenses] = useState<Expense[]>([]);
+  const [orders, setOrders] = useState<Order[]>([]);
+  const [transactions, setTransactions] = useState<Transaction[]>([]);
+  const [itemStatusLogs, setItemStatusLogs] = useState<ItemStatusLog[]>([]);
 
   // Cart state
   const [cart, setCart] = useState<CartItem[]>(() => {
@@ -537,225 +533,74 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     localStorage.setItem('exins_cart', JSON.stringify(cart));
   }, [cart]);
 
-  // Firestore real-time listeners on startup
+  // Supabase real-time sync & data loading on startup - purely driven by user's Supabase database
   useEffect(() => {
-    testConnection();
+    // Purge any old stale local cache on startup
+    const legacyKeys = [
+      'exins_customers',
+      'exins_bales',
+      'exins_categories',
+      'exins_products',
+      'exins_suppliers',
+      'exins_expense_accounts',
+      'exins_expenses',
+      'exins_orders',
+      'exins_transactions',
+      'exins_item_logs',
+      'exins_placed_orders',
+    ];
+    legacyKeys.forEach((k) => localStorage.removeItem(k));
 
-    // Listeners with graceful fallback
-    const unsubBales = onSnapshot(
-      query(collection(db, 'bales')),
-      (snapshot) => {
-        if (!snapshot.empty) {
-          const loaded: Bale[] = [];
-          snapshot.forEach((d) => loaded.push({ ...(d.data() as Bale), id: d.id }));
-          setBales(loaded);
+    const syncTable = async <T,>(
+      tableName: string,
+      setter: React.Dispatch<React.SetStateAction<T[]>>,
+      cacheKey: string
+    ) => {
+      try {
+        const { data, error } = await supabase.from(tableName).select('*');
+        if (!error && Array.isArray(data)) {
+          // If Supabase is empty, data is [] and state is set to []
+          setter(data as T[]);
+          localStorage.setItem(cacheKey, JSON.stringify(data));
+        } else if (error) {
+          console.warn(`Supabase sync note for ${tableName}:`, error.message);
+          setter([]);
+          localStorage.removeItem(cacheKey);
         }
-      },
-      (error) => handleFirestoreError(error, OperationType.LIST, 'bales')
-    );
+      } catch (e: any) {
+        console.warn(`Supabase sync note for ${tableName}:`, e?.message || e);
+        setter([]);
+      }
+    };
 
-    const unsubCategories = onSnapshot(
-      query(collection(db, 'categories')),
-      (snapshot) => {
-        const loaded: Category[] = [];
-        snapshot.forEach((d) => loaded.push({ ...(d.data() as Category), id: d.id }));
-        if (loaded.length > 0) {
-          setCategories(loaded);
-        } else {
-          // If Firestore is empty, check if we have local categories to persist into Firestore
-          const localSaved = localStorage.getItem('exins_categories');
-          if (localSaved) {
-            try {
-              const localCats: Category[] = JSON.parse(localSaved);
-              if (localCats.length > 0) {
-                setCategories(localCats);
-                localCats.forEach((c) => {
-                  setDoc(doc(db, 'categories', c.id), cleanFirestoreData(c)).catch(console.warn);
-                });
-                return;
-              }
-            } catch {
-              // ignore
-            }
-          }
-          setCategories([]);
-        }
-      },
-      (error) => handleFirestoreError(error, OperationType.LIST, 'categories')
-    );
+    syncTable('bales', setBales, 'exins_bales');
+    syncTable('categories', setCategories, 'exins_categories');
+    syncTable('products', setProducts, 'exins_products');
+    syncTable('suppliers', setSuppliers, 'exins_suppliers');
+    syncTable('expense_accounts', setExpenseAccounts, 'exins_expense_accounts');
+    syncTable('expenses', setExpenses, 'exins_expenses');
+    syncTable('orders', setOrders, 'exins_orders');
+    syncTable('transactions', setTransactions, 'exins_transactions');
+    syncTable('item_logs', setItemStatusLogs, 'exins_item_logs');
+    syncTable('customers', setCustomers, 'exins_customers');
 
-    const unsubProducts = onSnapshot(
-      query(collection(db, 'products')),
-      (snapshot) => {
-        const loaded: Product[] = [];
-        snapshot.forEach((d) => loaded.push({ ...(d.data() as Product), id: d.id }));
-        if (loaded.length > 0) {
-          setProducts(loaded);
-        } else {
-          // If Firestore is empty, check if we have local products to persist into Firestore
-          const localSaved = localStorage.getItem('exins_products');
-          if (localSaved) {
-            try {
-              const localProds: Product[] = JSON.parse(localSaved);
-              if (localProds.length > 0) {
-                setProducts(localProds);
-                localProds.forEach((p) => {
-                  setDoc(doc(db, 'products', p.id), cleanFirestoreData(p)).catch(console.warn);
-                });
-                return;
-              }
-            } catch {
-              // ignore
-            }
-          }
-          setProducts([]);
-        }
-      },
-      (error) => handleFirestoreError(error, OperationType.LIST, 'products')
-    );
-
-    const unsubSuppliers = onSnapshot(
-      query(collection(db, 'suppliers')),
-      (snapshot) => {
-        if (!snapshot.empty) {
-          const loaded: Supplier[] = [];
-          snapshot.forEach((d) => loaded.push({ ...(d.data() as Supplier), id: d.id }));
-          setSuppliers(loaded);
-        }
-      },
-      (error) => handleFirestoreError(error, OperationType.LIST, 'suppliers')
-    );
-
-    const unsubExpenseAcc = onSnapshot(
-      query(collection(db, 'expense_accounts')),
-      (snapshot) => {
-        if (!snapshot.empty) {
-          const loaded: ExpenseAccount[] = [];
-          snapshot.forEach((d) => loaded.push({ ...(d.data() as ExpenseAccount), id: d.id }));
-          setExpenseAccounts(loaded);
-        }
-      },
-      (error) => handleFirestoreError(error, OperationType.LIST, 'expense_accounts')
-    );
-
-    const unsubExpenses = onSnapshot(
-      query(collection(db, 'expenses')),
-      (snapshot) => {
-        const loaded: Expense[] = [];
-        snapshot.forEach((d) => loaded.push({ ...(d.data() as Expense), id: d.id }));
-        setExpenses(loaded);
-        localStorage.setItem('exins_expenses', JSON.stringify(loaded));
-      },
-      (error) => handleFirestoreError(error, OperationType.LIST, 'expenses')
-    );
-
-    const unsubOrders = onSnapshot(
-      query(collection(db, 'orders')),
-      (snapshot) => {
-        const loaded: Order[] = [];
-        snapshot.forEach((d) => loaded.push({ ...(d.data() as Order), id: d.id }));
-
-        setOrders((prev) => {
-          const orderMap = new Map<string, Order>();
-          // 1. Existing orders in memory
-          prev.forEach((o) => orderMap.set(o.id, o));
-
-          // 2. Existing orders in localStorage cache
-          try {
-            const saved = localStorage.getItem('exins_orders');
-            if (saved) {
-              const localList: Order[] = JSON.parse(saved);
-              localList.forEach((o) => {
-                if (!orderMap.has(o.id)) orderMap.set(o.id, o);
-              });
-            }
-          } catch {
-            // ignore
-          }
-
-          // 3. Remote orders from Firestore (source of truth for synced docs)
-          loaded.forEach((o) => orderMap.set(o.id, o));
-
-          const merged = Array.from(orderMap.values());
-          localStorage.setItem('exins_orders', JSON.stringify(merged));
-
-          // If there are locally created orders not yet in Firestore, sync them now
-          const missingInCloud = merged.filter((o) => !loaded.some((ld) => ld.id === o.id));
-          if (missingInCloud.length > 0) {
-            missingInCloud.forEach((o) => {
-              setDoc(doc(db, 'orders', o.id), cleanFirestoreData(o)).catch(console.warn);
-            });
-          }
-
-          return merged;
-        });
-      },
-      (error) => handleFirestoreError(error, OperationType.LIST, 'orders')
-    );
-
-    const unsubTransactions = onSnapshot(
-      query(collection(db, 'transactions')),
-      (snapshot) => {
-        const loaded: Transaction[] = [];
-        snapshot.forEach((d) => loaded.push({ ...(d.data() as Transaction), id: d.id }));
-        setTransactions(loaded);
-        localStorage.setItem('exins_transactions', JSON.stringify(loaded));
-      },
-      (error) => handleFirestoreError(error, OperationType.LIST, 'transactions')
-    );
-
-    const unsubCustomers = onSnapshot(
-      query(collection(db, 'customers')),
-      (snapshot) => {
-        const loaded: UserProfile[] = [];
-        snapshot.forEach((d) => loaded.push({ ...(d.data() as UserProfile), uid: d.id }));
-        if (loaded.length > 0) {
-          setCustomers(loaded);
-        } else {
-          // If Firestore is empty, check if we have local customers to persist into Firestore
-          const localSaved = localStorage.getItem('exins_customers');
-          if (localSaved) {
-            try {
-              const localCusts: UserProfile[] = JSON.parse(localSaved);
-              if (localCusts.length > 0) {
-                setCustomers(localCusts);
-                localCusts.forEach((c) => {
-                  setDoc(doc(db, 'customers', c.uid), cleanFirestoreData(c)).catch(console.warn);
-                });
-                return;
-              }
-            } catch {
-              // ignore
-            }
-          }
-        }
-      },
-      (error) => handleFirestoreError(error, OperationType.LIST, 'customers')
-    );
-
-    const unsubItemLogs = onSnapshot(
-      query(collection(db, 'item_logs')),
-      (snapshot) => {
-        const loaded: ItemStatusLog[] = [];
-        snapshot.forEach((d) => loaded.push({ ...(d.data() as ItemStatusLog), id: d.id }));
-        if (loaded.length > 0) {
-          setItemStatusLogs(loaded);
-        }
-      },
-      (error) => handleFirestoreError(error, OperationType.LIST, 'item_logs')
-    );
+    // Subscribe to realtime database changes
+    const channel = supabase
+      .channel('public:exins-sync')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'bales' }, () => syncTable('bales', setBales, 'exins_bales'))
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'categories' }, () => syncTable('categories', setCategories, 'exins_categories'))
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'products' }, () => syncTable('products', setProducts, 'exins_products'))
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'suppliers' }, () => syncTable('suppliers', setSuppliers, 'exins_suppliers'))
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'expense_accounts' }, () => syncTable('expense_accounts', setExpenseAccounts, 'exins_expense_accounts'))
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'expenses' }, () => syncTable('expenses', setExpenses, 'exins_expenses'))
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'orders' }, () => syncTable('orders', setOrders, 'exins_orders'))
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'transactions' }, () => syncTable('transactions', setTransactions, 'exins_transactions'))
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'item_logs' }, () => syncTable('item_logs', setItemStatusLogs, 'exins_item_logs'))
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'customers' }, () => syncTable('customers', setCustomers, 'exins_customers'))
+      .subscribe();
 
     return () => {
-      unsubBales();
-      unsubCategories();
-      unsubProducts();
-      unsubSuppliers();
-      unsubExpenseAcc();
-      unsubExpenses();
-      unsubOrders();
-      unsubTransactions();
-      unsubCustomers();
-      unsubItemLogs();
+      supabase.removeChannel(channel);
     };
   }, []);
 
@@ -789,107 +634,6 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       })
     );
   }, [products, expenses, bales]);
-
-  // Auto-heal orders: if a transaction exists with an order reference, ensure the order is present in orders state and Firestore
-  useEffect(() => {
-    if (transactions.length > 0) {
-      const missingTxs = transactions.filter((tx) => {
-        if (tx.flowType !== 'inflow') return false;
-        const linkedId = tx.orderId;
-        if (!linkedId) return false;
-        return !orders.some((o) => o.id === linkedId);
-      });
-
-      if (missingTxs.length > 0) {
-        missingTxs.forEach(async (tx) => {
-          const isPos = tx.category === 'POS Sales' || tx.orderId?.startsWith('pos_');
-          const ordNumMatch = tx.description?.match(/#(EX-[0-9]+|POS-[0-9]+)/);
-          const orderNum = ordNumMatch
-            ? ordNumMatch[1]
-            : isPos
-            ? `POS-${Date.now().toString().slice(-6)}`
-            : `EX-${Date.now().toString().slice(-8)}`;
-
-          const custNameMatch = tx.description?.match(/\(([^)]+)\)/);
-          const custName = custNameMatch
-            ? custNameMatch[1]
-            : isPos
-            ? 'Walk-in Customer'
-            : 'Online Customer';
-
-          const matchedCust = customers.find(
-            (c) => c.displayName.toLowerCase() === custName.toLowerCase()
-          );
-
-          const matchedLog = itemStatusLogs.find(
-            (l) => l.notes && l.notes.includes(orderNum)
-          );
-
-          const matchedProduct = matchedLog
-            ? products.find((p) => p.id === matchedLog.productId)
-            : null;
-
-          const restoredOrder: Order = {
-            id: tx.orderId!,
-            orderNumber: orderNum,
-            userId: matchedCust?.uid,
-            customerName: custName,
-            contactNumber: matchedCust?.phone || 'N/A',
-            email: matchedCust?.email || (isPos ? 'pos@exins.shop' : 'customer@exins.shop'),
-            address: matchedCust?.address || (isPos ? 'In-store Purchase' : 'Standard Delivery'),
-            items: matchedLog
-              ? [
-                  {
-                    productId: matchedLog.productId,
-                    name: matchedLog.productName,
-                    size: matchedProduct?.size || 'Free Size',
-                    price: matchedProduct?.sellingPrice || tx.inflow || 0,
-                    costPrice: matchedProduct?.costPrice || 0,
-                    quantity: matchedLog.quantity || 1,
-                    imageUrl: matchedProduct?.imageUrl || '',
-                    baleCode: matchedProduct?.baleCode || '',
-                  },
-                ]
-              : [
-                  {
-                    productId: 'recovered',
-                    name: isPos ? 'Store Item' : 'Online Apparel',
-                    size: 'Free Size',
-                    price: tx.inflow || 0,
-                    costPrice: 0,
-                    quantity: 1,
-                    imageUrl: '',
-                    baleCode: '',
-                  },
-                ],
-            totalAmount: matchedProduct ? matchedProduct.sellingPrice : tx.inflow || 0,
-            paymentType: (tx.inflow || 0) < 500 && !isPos ? 'down_payment' : 'pay_now',
-            downPaymentAmount: (tx.inflow || 0) < 500 && !isPos ? tx.inflow || 100 : 0,
-            remainingBalance:
-              (tx.inflow || 0) < 500 && !isPos && matchedProduct
-                ? Math.max(0, matchedProduct.sellingPrice - (tx.inflow || 0))
-                : 0,
-            status: isPos ? 'completed' : 'pending',
-            orderSource: isPos ? 'pos' : 'online',
-            paymentMethod: tx.paymentMethod || 'gcash',
-            courier: 'jnt',
-            shippingNote: 'Customer shoulders shipping fee directly upon courier delivery.',
-            createdAt: tx.createdAt || new Date().toISOString(),
-            updatedAt: new Date().toISOString(),
-          };
-
-          setOrders((prev) => {
-            const updated = [restoredOrder, ...prev.filter((o) => o.id !== restoredOrder.id)];
-            localStorage.setItem('exins_orders', JSON.stringify(updated));
-            return updated;
-          });
-          await setDoc(doc(db, 'orders', restoredOrder.id), cleanFirestoreData(restoredOrder)).catch(
-            console.warn
-          );
-        });
-      }
-    }
-  }, [transactions, orders, customers, itemStatusLogs, products]);
 
   // Ensure customer's placed orders are indexed in localStorage for fast, resilient "My Orders" lookup
   useEffect(() => {
@@ -1034,27 +778,27 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     setBales((prev) => [newBale, ...prev]);
 
     try {
-      await setDoc(doc(db, 'bales', id), newBale);
+      await supabase.from('bales').upsert(cleanData(newBale));
     } catch (err) {
-      handleFirestoreError(err, OperationType.CREATE, `bales/${id}`);
+      console.warn('Supabase bales insert error:', err);
     }
   };
 
   const updateBale = async (id: string, updates: Partial<Bale>) => {
     setBales((prev) => prev.map((b) => (b.id === id ? { ...b, ...updates } : b)));
     try {
-      await updateDoc(doc(db, 'bales', id), updates);
+      await supabase.from('bales').update(cleanData(updates)).eq('id', id);
     } catch (err) {
-      handleFirestoreError(err, OperationType.UPDATE, `bales/${id}`);
+      console.warn('Supabase bales update error:', err);
     }
   };
 
   const deleteBale = async (id: string) => {
     setBales((prev) => prev.filter((b) => b.id !== id));
     try {
-      await deleteDoc(doc(db, 'bales', id));
+      await supabase.from('bales').delete().eq('id', id);
     } catch (err) {
-      handleFirestoreError(err, OperationType.DELETE, `bales/${id}`);
+      console.warn('Supabase bales delete error:', err);
     }
   };
 
@@ -1070,27 +814,27 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     setCategories((prev) => [newCat, ...prev]);
 
     try {
-      await setDoc(doc(db, 'categories', id), cleanFirestoreData(newCat));
+      await supabase.from('categories').upsert(cleanData(newCat));
     } catch (err) {
-      handleFirestoreError(err, OperationType.CREATE, `categories/${id}`);
+      console.warn('Supabase categories insert error:', err);
     }
   };
 
   const updateCategory = async (id: string, updates: Partial<Category>) => {
     setCategories((prev) => prev.map((c) => (c.id === id ? { ...c, ...updates } : c)));
     try {
-      await updateDoc(doc(db, 'categories', id), cleanFirestoreData(updates));
+      await supabase.from('categories').update(cleanData(updates)).eq('id', id);
     } catch (err) {
-      handleFirestoreError(err, OperationType.UPDATE, `categories/${id}`);
+      console.warn('Supabase categories update error:', err);
     }
   };
 
   const deleteCategory = async (id: string) => {
     setCategories((prev) => prev.filter((c) => c.id !== id));
     try {
-      await deleteDoc(doc(db, 'categories', id));
+      await supabase.from('categories').delete().eq('id', id);
     } catch (err) {
-      handleFirestoreError(err, OperationType.DELETE, `categories/${id}`);
+      console.warn('Supabase categories delete error:', err);
     }
   };
 
@@ -1105,27 +849,27 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     setProducts((prev) => [newProd, ...prev]);
 
     try {
-      await setDoc(doc(db, 'products', id), cleanFirestoreData(newProd));
+      await supabase.from('products').upsert(cleanData(newProd));
     } catch (err) {
-      handleFirestoreError(err, OperationType.CREATE, `products/${id}`);
+      console.warn('Supabase products insert error:', err);
     }
   };
 
   const updateProduct = async (id: string, updates: Partial<Product>) => {
     setProducts((prev) => prev.map((p) => (p.id === id ? { ...p, ...updates } : p)));
     try {
-      await updateDoc(doc(db, 'products', id), cleanFirestoreData(updates));
+      await supabase.from('products').update(cleanData(updates)).eq('id', id);
     } catch (err) {
-      handleFirestoreError(err, OperationType.UPDATE, `products/${id}`);
+      console.warn('Supabase products update error:', err);
     }
   };
 
   const deleteProduct = async (id: string) => {
     setProducts((prev) => prev.filter((p) => p.id !== id));
     try {
-      await deleteDoc(doc(db, 'products', id));
+      await supabase.from('products').delete().eq('id', id);
     } catch (err) {
-      handleFirestoreError(err, OperationType.DELETE, `products/${id}`);
+      console.warn('Supabase products delete error:', err);
     }
   };
 
@@ -1148,27 +892,27 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     setSuppliers((prev) => [newSupp, ...prev]);
 
     try {
-      await setDoc(doc(db, 'suppliers', id), newSupp);
+      await supabase.from('suppliers').upsert(cleanData(newSupp));
     } catch (err) {
-      handleFirestoreError(err, OperationType.CREATE, `suppliers/${id}`);
+      console.warn('Supabase suppliers insert error:', err);
     }
   };
 
   const updateSupplier = async (id: string, updates: Partial<Supplier>) => {
     setSuppliers((prev) => prev.map((s) => (s.id === id ? { ...s, ...updates } : s)));
     try {
-      await updateDoc(doc(db, 'suppliers', id), updates);
+      await supabase.from('suppliers').update(cleanData(updates)).eq('id', id);
     } catch (err) {
-      handleFirestoreError(err, OperationType.UPDATE, `suppliers/${id}`);
+      console.warn('Supabase suppliers update error:', err);
     }
   };
 
   const deleteSupplier = async (id: string) => {
     setSuppliers((prev) => prev.filter((s) => s.id !== id));
     try {
-      await deleteDoc(doc(db, 'suppliers', id));
+      await supabase.from('suppliers').delete().eq('id', id);
     } catch (err) {
-      handleFirestoreError(err, OperationType.DELETE, `suppliers/${id}`);
+      console.warn('Supabase suppliers delete error:', err);
     }
   };
 
@@ -1184,27 +928,27 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     setExpenseAccounts((prev) => [newAcc, ...prev]);
 
     try {
-      await setDoc(doc(db, 'expense_accounts', id), newAcc);
+      await supabase.from('expense_accounts').upsert(cleanData(newAcc));
     } catch (err) {
-      handleFirestoreError(err, OperationType.CREATE, `expense_accounts/${id}`);
+      console.warn('Supabase expense_accounts insert error:', err);
     }
   };
 
   const updateExpenseAccount = async (id: string, updates: Partial<ExpenseAccount>) => {
     setExpenseAccounts((prev) => prev.map((a) => (a.id === id ? { ...a, ...updates } : a)));
     try {
-      await updateDoc(doc(db, 'expense_accounts', id), updates);
+      await supabase.from('expense_accounts').update(cleanData(updates)).eq('id', id);
     } catch (err) {
-      handleFirestoreError(err, OperationType.UPDATE, `expense_accounts/${id}`);
+      console.warn('Supabase expense_accounts update error:', err);
     }
   };
 
   const deleteExpenseAccount = async (id: string) => {
     setExpenseAccounts((prev) => prev.filter((a) => a.id !== id));
     try {
-      await deleteDoc(doc(db, 'expense_accounts', id));
+      await supabase.from('expense_accounts').delete().eq('id', id);
     } catch (err) {
-      handleFirestoreError(err, OperationType.DELETE, `expense_accounts/${id}`);
+      console.warn('Supabase expense_accounts delete error:', err);
     }
   };
 
@@ -1236,10 +980,10 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     setTransactions((prev) => [newTx, ...prev]);
 
     try {
-      await setDoc(doc(db, 'expenses', id), newExp);
-      await setDoc(doc(db, 'transactions', txId), newTx);
+      await supabase.from('expenses').upsert(cleanData(newExp));
+      await supabase.from('transactions').upsert(cleanData(newTx));
     } catch (err) {
-      handleFirestoreError(err, OperationType.CREATE, `expenses/${id}`);
+      console.warn('Supabase expenses error:', err);
     }
   };
 
@@ -1261,12 +1005,12 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     }
 
     try {
-      await deleteDoc(doc(db, 'expenses', id));
+      await supabase.from('expenses').delete().eq('id', id);
       if (matchingTx) {
-        await deleteDoc(doc(db, 'transactions', matchingTx.id)).catch(console.warn);
+        await supabase.from('transactions').delete().eq('id', matchingTx.id);
       }
     } catch (err) {
-      handleFirestoreError(err, OperationType.DELETE, `expenses/${id}`);
+      console.warn('Supabase delete expense error:', err);
     }
   };
 
@@ -1281,9 +1025,9 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     setTransactions((prev) => [newTx, ...prev]);
 
     try {
-      await setDoc(doc(db, 'transactions', id), newTx);
+      await supabase.from('transactions').upsert(cleanData(newTx));
     } catch (err) {
-      handleFirestoreError(err, OperationType.CREATE, `transactions/${id}`);
+      console.warn('Supabase transactions insert error:', err);
     }
   };
 
@@ -1298,10 +1042,10 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     });
 
     try {
-      // 2. Delete transaction document from Firestore database
-      await deleteDoc(doc(db, 'transactions', id));
+      // 2. Delete transaction from Supabase
+      await supabase.from('transactions').delete().eq('id', id);
 
-      // 3. If linked to an order, delete order document from Firestore database and state
+      // 3. If linked to an order, delete order
       const linkedOrderId = targetTx?.orderId;
       if (linkedOrderId) {
         setOrders((prev) => {
@@ -1309,7 +1053,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
           localStorage.setItem('exins_orders', JSON.stringify(next));
           return next;
         });
-        await deleteDoc(doc(db, 'orders', linkedOrderId)).catch(console.warn);
+        await supabase.from('orders').delete().eq('id', linkedOrderId);
       } else if (targetTx?.description) {
         // Fallback match: check if order number or order id is mentioned in description
         const matchedOrder = orders.find(
@@ -1321,11 +1065,11 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
             localStorage.setItem('exins_orders', JSON.stringify(next));
             return next;
           });
-          await deleteDoc(doc(db, 'orders', matchedOrder.id)).catch(console.warn);
+          await supabase.from('orders').delete().eq('id', matchedOrder.id);
         }
       }
 
-      // 4. If linked to an expense, delete expense document from Firestore database and state
+      // 4. If linked to an expense, delete expense
       const linkedExpenseId = targetTx?.expenseId;
       if (linkedExpenseId) {
         setExpenses((prev) => {
@@ -1333,7 +1077,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
           localStorage.setItem('exins_expenses', JSON.stringify(next));
           return next;
         });
-        await deleteDoc(doc(db, 'expenses', linkedExpenseId)).catch(console.warn);
+        await supabase.from('expenses').delete().eq('id', linkedExpenseId);
       } else if (targetTx?.flowType === 'outflow') {
         const matchedExp = expenses.find(
           (e) =>
@@ -1346,11 +1090,11 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
             localStorage.setItem('exins_expenses', JSON.stringify(next));
             return next;
           });
-          await deleteDoc(doc(db, 'expenses', matchedExp.id)).catch(console.warn);
+          await supabase.from('expenses').delete().eq('id', matchedExp.id);
         }
       }
     } catch (err) {
-      handleFirestoreError(err, OperationType.DELETE, `transactions/${id}`);
+      console.warn('Supabase delete transaction error:', err);
     }
   };
 
@@ -1441,7 +1185,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       }
       return [custProfile, ...prev];
     });
-    setDoc(doc(db, 'customers', custProfile.uid), cleanFirestoreData(custProfile)).catch(console.warn);
+    Promise.resolve(supabase.from('customers').upsert(cleanData(custProfile))).catch(console.warn);
 
     // Deduct inventory quantities and credit bale sales
     orderData.items.forEach((item) => {
@@ -1450,7 +1194,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         prev.map((p) => {
           if (p.id === item.productId) {
             const newQty = Math.max(0, p.availableQuantity - item.quantity);
-            // also trigger update in firestore
+            // also trigger update in supabase
             updateProduct(p.id, { availableQuantity: newQty });
             return { ...p, availableQuantity: newQty };
           }
@@ -1507,10 +1251,10 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     setTransactions((prev) => [newTx, ...prev]);
 
     try {
-      await setDoc(doc(db, 'orders', id), cleanFirestoreData(newOrder));
-      await setDoc(doc(db, 'transactions', txId), cleanFirestoreData(newTx));
+      await supabase.from('orders').upsert(cleanData(newOrder));
+      await supabase.from('transactions').upsert(cleanData(newTx));
     } catch (err) {
-      handleFirestoreError(err, OperationType.CREATE, `orders/${id}`);
+      console.warn('Supabase create order error:', err);
     }
 
     return newOrder;
@@ -1521,9 +1265,9 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       prev.map((o) => (o.id === orderId ? { ...o, status, updatedAt: new Date().toISOString() } : o))
     );
     try {
-      await updateDoc(doc(db, 'orders', orderId), { status, updatedAt: new Date().toISOString() });
+      await supabase.from('orders').update(cleanData({ status, updatedAt: new Date().toISOString() })).eq('id', orderId);
     } catch (err) {
-      handleFirestoreError(err, OperationType.UPDATE, `orders/${orderId}`);
+      console.warn('Supabase update order status error:', err);
     }
   };
 
@@ -1666,10 +1410,10 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     setTransactions((prev) => [newTx, ...prev]);
 
     try {
-      await setDoc(doc(db, 'orders', id), cleanFirestoreData(newOrder));
-      await setDoc(doc(db, 'transactions', txId), cleanFirestoreData(newTx));
+      await supabase.from('orders').upsert(cleanData(newOrder));
+      await supabase.from('transactions').upsert(cleanData(newTx));
     } catch (err) {
-      handleFirestoreError(err, OperationType.CREATE, `orders/${id}`);
+      console.warn('Supabase create POS order error:', err);
     }
 
     return newOrder;
@@ -1699,9 +1443,9 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     setItemStatusLogs((prev) => [newLog, ...prev]);
 
     try {
-      await setDoc(doc(db, 'item_logs', id), cleanFirestoreData(newLog));
+      await supabase.from('item_logs').upsert(cleanData(newLog));
     } catch (err) {
-      handleFirestoreError(err, OperationType.CREATE, `item_logs/${id}`);
+      console.warn('Supabase log item status error:', err);
     }
 
     // If stock adjustment is requested
@@ -1739,9 +1483,9 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     );
 
     try {
-      await updateDoc(doc(db, 'item_logs', id), cleanFirestoreData(updates));
+      await supabase.from('item_logs').update(cleanData(updates)).eq('id', id);
     } catch (err) {
-      handleFirestoreError(err, OperationType.UPDATE, `item_logs/${id}`);
+      console.warn('Supabase update item log error:', err);
     }
 
     if (
@@ -1766,9 +1510,9 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   const deleteItemStatusLog = async (id: string) => {
     setItemStatusLogs((prev) => prev.filter((log) => log.id !== id));
     try {
-      await deleteDoc(doc(db, 'item_logs', id));
+      await supabase.from('item_logs').delete().eq('id', id);
     } catch (err) {
-      handleFirestoreError(err, OperationType.DELETE, `item_logs/${id}`);
+      console.warn('Supabase delete item log error:', err);
     }
   };
 

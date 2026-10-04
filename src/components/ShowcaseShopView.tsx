@@ -80,14 +80,15 @@ export const ShowcaseShopView: React.FC<ShowcaseShopViewProps> = ({
   }, [initialMode]);
 
   // Top 10 Customers Filter States
-  const [topCustomerFilterType, setTopCustomerFilterType] = useState<'month' | 'custom' | 'all'>('month');
+  const [topCustomerFilterType, setTopCustomerFilterType] = useState<'month' | 'custom'>('month');
 
-  // Per month filter default (current month format YYYY-MM)
-  const currentMonthStr = useMemo(() => {
-    const d = new Date();
-    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
-  }, []);
-  const [selectedMonth, setSelectedMonth] = useState<string>(currentMonthStr);
+  // Month (January to December) & Year
+  const MONTH_NAMES = [
+    'January', 'February', 'March', 'April', 'May', 'June',
+    'July', 'August', 'September', 'October', 'November', 'December'
+  ];
+  const [selectedMonthNum, setSelectedMonthNum] = useState<number>(new Date().getMonth());
+  const [selectedYearNum, setSelectedYearNum] = useState<number>(new Date().getFullYear());
 
   // Custom date range filter
   const [customStartDate, setCustomStartDate] = useState<string>('');
@@ -238,42 +239,37 @@ export const ShowcaseShopView: React.FC<ShowcaseShopViewProps> = ({
     return baseList;
   }, [orders, customerOrders, isStoreAdmin, orderStatusFilter]);
 
-  // Distinct available months from orders for month-only filter
-  const availableMonths = useMemo(() => {
-    const set = new Set<string>();
-    const now = new Date();
-    set.add(`${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`);
+  // Available recorded years for year dropdown
+  const availableYears = useMemo(() => {
+    const set = new Set<number>();
+    const currentYear = new Date().getFullYear();
+    set.add(currentYear);
+    set.add(currentYear - 1);
+    set.add(currentYear - 2);
+
     orders.forEach((o) => {
       const d = new Date(o.createdAt);
       if (!isNaN(d.getTime())) {
-        set.add(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`);
+        set.add(d.getFullYear());
       }
     });
-    return Array.from(set).sort().reverse();
+
+    return Array.from(set).sort((a, b) => b - a);
   }, [orders]);
 
-  const formatMonthLabel = (yyyyMm: string) => {
-    if (!yyyyMm) return 'All Months';
-    const parts = yyyyMm.split('-');
-    if (parts.length < 2) return yyyyMm;
-    const date = new Date(parseInt(parts[0], 10), parseInt(parts[1], 10) - 1, 1);
-    return isNaN(date.getTime()) ? yyyyMm : date.toLocaleString('default', { month: 'long', year: 'numeric' });
-  };
-
-  // Orders filtered for Top 10 Customers based on month-only or custom date range
+  // Orders filtered for Top 10 Customers based on month/year or custom date range
   const filteredOrdersForTopCustomers = useMemo(() => {
     return orders.filter((o) => {
       if (o.status === 'cancelled') return false;
       const orderDate = new Date(o.createdAt);
       if (isNaN(orderDate.getTime())) return false;
 
-      // 1. Per Month Only Filter
+      // 1. Select Month (January to December) and Year
       if (topCustomerFilterType === 'month') {
-        if (!selectedMonth) return true;
-        const [yearStr, monthStr] = selectedMonth.split('-');
-        const targetYear = parseInt(yearStr, 10);
-        const targetMonth = parseInt(monthStr, 10) - 1;
-        return orderDate.getFullYear() === targetYear && orderDate.getMonth() === targetMonth;
+        return (
+          orderDate.getFullYear() === selectedYearNum &&
+          orderDate.getMonth() === selectedMonthNum
+        );
       }
 
       // 2. Custom Date Range Filter
@@ -291,10 +287,9 @@ export const ShowcaseShopView: React.FC<ShowcaseShopViewProps> = ({
         return true;
       }
 
-      // 3. All Time
       return true;
     });
-  }, [orders, topCustomerFilterType, selectedMonth, customStartDate, customEndDate]);
+  }, [orders, topCustomerFilterType, selectedMonthNum, selectedYearNum, customStartDate, customEndDate]);
 
   // Aggregated Top 10 Customer Spenders
   const top10Customers = useMemo(() => {
@@ -511,15 +506,17 @@ export const ShowcaseShopView: React.FC<ShowcaseShopViewProps> = ({
                   </span>
                 </button>
                 <button
+                  type="button"
                   onClick={() => setActiveMode('top_customers')}
-                  className={`px-5 py-3 rounded-2xl font-bold text-sm shadow-md transition flex items-center gap-2 cursor-pointer ${
+                  title="Top 10 Customers"
+                  aria-label="Top 10 Customers"
+                  className={`p-3 rounded-2xl transition flex items-center justify-center cursor-pointer border shrink-0 ${
                     activeMode === 'top_customers'
-                      ? 'bg-gradient-to-r from-orange-600 to-amber-700 text-white shadow-orange-600/30'
-                      : 'bg-stone-900/80 text-stone-300 hover:text-white border border-orange-500/20'
+                      ? 'bg-gradient-to-r from-orange-600 to-amber-700 text-white shadow-md shadow-orange-600/30 border-amber-400/60 ring-2 ring-amber-400/40'
+                      : 'bg-stone-900/80 text-amber-400 hover:text-amber-300 border-amber-500/30 hover:border-amber-400/60'
                   }`}
                 >
-                  <Trophy className="w-4 h-4 text-amber-400" />
-                  <span>Top 10 Customers</span>
+                  <Trophy className="w-5 h-5 text-amber-400" />
                 </button>
               </>
             ) : isGuest ? (
@@ -547,15 +544,17 @@ export const ShowcaseShopView: React.FC<ShowcaseShopViewProps> = ({
                   <span>My Orders</span>
                 </button>
                 <button
+                  type="button"
                   onClick={() => setActiveMode('top_customers')}
-                  className={`px-5 py-3 rounded-2xl font-bold text-sm shadow-md transition flex items-center gap-2 cursor-pointer ${
+                  title="Top 10 Customers"
+                  aria-label="Top 10 Customers"
+                  className={`p-3 rounded-2xl transition flex items-center justify-center cursor-pointer border shrink-0 ${
                     activeMode === 'top_customers'
-                      ? 'bg-gradient-to-r from-orange-600 to-amber-700 text-white shadow-orange-600/30'
-                      : 'bg-stone-900/80 text-stone-300 hover:text-white border border-orange-500/20'
+                      ? 'bg-gradient-to-r from-orange-600 to-amber-700 text-white shadow-md shadow-orange-600/30 border-amber-400/60 ring-2 ring-amber-400/40'
+                      : 'bg-stone-900/80 text-amber-400 hover:text-amber-300 border-amber-500/30 hover:border-amber-400/60'
                   }`}
                 >
-                  <Trophy className="w-4 h-4 text-amber-400" />
-                  <span>Top 10 Customers</span>
+                  <Trophy className="w-5 h-5 text-amber-400" />
                 </button>
                 <button
                   onClick={() => onOpenAuth('signup')}
@@ -590,15 +589,17 @@ export const ShowcaseShopView: React.FC<ShowcaseShopViewProps> = ({
                   <span>My Orders ({customerOrders.length})</span>
                 </button>
                 <button
+                  type="button"
                   onClick={() => setActiveMode('top_customers')}
-                  className={`px-5 py-3 rounded-2xl font-bold text-sm shadow-md transition flex items-center gap-2 cursor-pointer ${
+                  title="Top 10 Customers"
+                  aria-label="Top 10 Customers"
+                  className={`p-3 rounded-2xl transition flex items-center justify-center cursor-pointer border shrink-0 ${
                     activeMode === 'top_customers'
-                      ? 'bg-gradient-to-r from-orange-600 to-amber-700 text-white shadow-orange-600/30'
-                      : 'bg-stone-900/80 text-stone-300 hover:text-white border border-orange-500/20'
+                      ? 'bg-gradient-to-r from-orange-600 to-amber-700 text-white shadow-md shadow-orange-600/30 border-amber-400/60 ring-2 ring-amber-400/40'
+                      : 'bg-stone-900/80 text-amber-400 hover:text-amber-300 border-amber-500/30 hover:border-amber-400/60'
                   }`}
                 >
-                  <Trophy className="w-4 h-4 text-amber-400" />
-                  <span>Top 10 Customers</span>
+                  <Trophy className="w-5 h-5 text-amber-400" />
                 </button>
               </>
             )}
@@ -1128,25 +1129,36 @@ export const ShowcaseShopView: React.FC<ShowcaseShopViewProps> = ({
 
             {/* Select Month and Year Inputs */}
             {topCustomerFilterType === 'month' && (
-              <div className="p-3.5 rounded-2xl bg-stone-950/60 border border-orange-500/20 flex flex-wrap items-center gap-3 text-xs animate-fade-in">
-                <span className="text-stone-300 font-medium">Month & Year:</span>
-                <input
-                  type="month"
-                  value={selectedMonth}
-                  onChange={(e) => setSelectedMonth(e.target.value)}
-                  className="px-3 py-2 rounded-xl bg-stone-900 border border-orange-500/30 text-white font-medium focus:outline-none focus:border-orange-500 cursor-pointer text-xs"
-                />
-                <select
-                  value={selectedMonth}
-                  onChange={(e) => setSelectedMonth(e.target.value)}
-                  className="px-3 py-2 rounded-xl bg-stone-900 border border-stone-800 text-stone-200 focus:outline-none cursor-pointer text-xs"
-                >
-                  {availableMonths.map((ym) => (
-                    <option key={ym} value={ym}>
-                      {formatMonthLabel(ym)}
-                    </option>
-                  ))}
-                </select>
+              <div className="p-3.5 rounded-2xl bg-stone-950/60 border border-orange-500/20 flex flex-wrap items-center gap-4 text-xs animate-fade-in">
+                <div className="flex items-center gap-2">
+                  <span className="text-stone-300 font-medium">Select Month:</span>
+                  <select
+                    value={selectedMonthNum}
+                    onChange={(e) => setSelectedMonthNum(parseInt(e.target.value, 10))}
+                    className="px-3.5 py-2 rounded-xl bg-stone-900 border border-orange-500/30 text-white font-medium focus:outline-none focus:border-orange-500 cursor-pointer text-xs"
+                  >
+                    {MONTH_NAMES.map((mName, idx) => (
+                      <option key={idx} value={idx}>
+                        {mName}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <span className="text-stone-300 font-medium">Select Year:</span>
+                  <select
+                    value={selectedYearNum}
+                    onChange={(e) => setSelectedYearNum(parseInt(e.target.value, 10))}
+                    className="px-3.5 py-2 rounded-xl bg-stone-900 border border-orange-500/30 text-white font-medium focus:outline-none focus:border-orange-500 cursor-pointer text-xs"
+                  >
+                    {availableYears.map((yr) => (
+                      <option key={yr} value={yr}>
+                        {yr}
+                      </option>
+                    ))}
+                  </select>
+                </div>
               </div>
             )}
 
