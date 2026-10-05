@@ -555,7 +555,9 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, initialTa
               {currentUser.displayName || 'Guest Visitor'}
             </span>{' '}
             (
-            <span className="capitalize">{currentUser.role || 'guest'}</span>
+            <span className="capitalize">
+              {currentUser.role === 'owner' ? 'Admin' : currentUser.role === 'staff' ? 'Staff' : currentUser.role || 'Guest'}
+            </span>
             )
           </p>
         </div>

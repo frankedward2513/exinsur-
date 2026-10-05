@@ -10,12 +10,13 @@ import {
   Layers,
   Percent,
   Filter,
+  Database,
 } from 'lucide-react';
 
 type DateFilterPreset = 'all' | 'today' | 'last7' | 'last30' | 'this_month' | 'custom';
 
 export const DashboardView: React.FC = () => {
-  const { orders, expenses, transactions, products } = useStore();
+  const { orders, expenses, transactions, products, setShowRlsModal, rlsBlocked } = useStore();
 
   const [dateFilter, setDateFilter] = useState<DateFilterPreset>('all');
   const [customStart, setCustomStart] = useState<string>('');
@@ -214,8 +215,20 @@ export const DashboardView: React.FC = () => {
           </p>
         </div>
 
-        {/* Filters */}
+        {/* Filters & Database Status */}
         <div className="flex flex-wrap items-center gap-2">
+          <button
+            onClick={() => setShowRlsModal(true)}
+            className={`flex items-center gap-1.5 py-1.5 px-3 rounded-xl border text-xs font-semibold transition cursor-pointer shrink-0 ${
+              rlsBlocked
+                ? 'bg-amber-950/80 border-amber-500/50 text-amber-300 hover:bg-amber-900 animate-pulse'
+                : 'bg-stone-950/70 border-orange-500/20 hover:border-orange-500/50 text-stone-300 hover:text-white'
+            }`}
+          >
+            <Database className="w-3.5 h-3.5 text-orange-400" />
+            <span>{rlsBlocked ? 'RLS Policies Needed' : 'Supabase Status'}</span>
+          </button>
+
           <div className="flex items-center gap-1 p-1 rounded-xl bg-stone-950/70 border border-orange-500/20 text-xs overflow-x-auto max-w-full">
             <Filter className="w-3.5 h-3.5 text-orange-400 ml-1.5 shrink-0" />
             <button

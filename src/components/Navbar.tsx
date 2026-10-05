@@ -21,6 +21,7 @@ import {
   LogIn,
   UserPlus,
   Clock,
+  Database,
 } from 'lucide-react';
 
 export type ActiveTab =
@@ -47,7 +48,7 @@ export const Navbar: React.FC<NavbarProps> = ({
   onOpenAuth,
   onOpenCart,
 }) => {
-  const { isDarkMode, toggleDarkMode, currentUser, logout, cart } = useStore();
+  const { isDarkMode, toggleDarkMode, currentUser, logout, cart, setShowRlsModal, rlsBlocked } = useStore();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [mobileAuthChoiceOpen, setMobileAuthChoiceOpen] = useState(false);
 
@@ -145,6 +146,24 @@ export const Navbar: React.FC<NavbarProps> = ({
                 <Moon className="w-4 h-4 sm:w-5 sm:h-5 text-orange-400" />
               )}
             </button>
+
+            {/* Supabase Database & RLS Status Button */}
+            {(currentUser.role === 'owner' || currentUser.role === 'staff') && (
+              <button
+                onClick={() => setShowRlsModal(true)}
+                title={rlsBlocked ? 'Supabase RLS Setup Needed: Click to fix' : 'Supabase Database & Table Status'}
+                className={`p-2 sm:p-2.5 rounded-xl border transition cursor-pointer shrink-0 flex items-center gap-1.5 ${
+                  rlsBlocked
+                    ? 'bg-amber-950/80 border-amber-500/50 text-amber-400 hover:bg-amber-900/80 animate-pulse'
+                    : 'bg-stone-900/80 border-orange-500/20 hover:border-orange-500/50 text-stone-300 hover:text-orange-400'
+                }`}
+              >
+                <Database className="w-4 h-4" />
+                <span className="hidden xl:inline text-xs font-semibold">
+                  {rlsBlocked ? 'RLS Setup' : 'DB'}
+                </span>
+              </button>
+            )}
 
             {/* Role & Account Button - Dedicated Sign In & Sign Up for all screens */}
             <div className="flex items-center gap-1 sm:gap-2">
@@ -281,7 +300,7 @@ export const Navbar: React.FC<NavbarProps> = ({
                         {currentUser.displayName}
                       </p>
                       <p className="text-[10px] text-orange-400 uppercase font-mono font-medium">
-                        {currentUser.role}
+                        {currentUser.role === 'owner' ? 'Admin' : currentUser.role === 'staff' ? 'Staff' : 'Customer'}
                       </p>
                     </div>
                   </button>
@@ -374,7 +393,7 @@ export const Navbar: React.FC<NavbarProps> = ({
                     <p className="text-[10px] text-stone-400">Logged in as</p>
                     <p className="text-xs font-semibold text-white truncate">{currentUser.displayName}</p>
                     <span className="text-[9px] uppercase font-mono px-2 py-0.5 rounded bg-orange-500/20 text-orange-400 inline-block mt-0.5">
-                      {currentUser.role}
+                      {currentUser.role === 'owner' ? 'Admin' : currentUser.role === 'staff' ? 'Staff' : 'Customer'}
                     </span>
                   </div>
                   <div className="flex items-center gap-1.5 shrink-0">

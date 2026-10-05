@@ -81,6 +81,14 @@ interface StoreContextType {
     address: string;
   }) => Promise<boolean>;
   logout: () => void;
+
+  // Supabase RLS Diagnostics & Sync
+  rlsBlocked: boolean;
+  rlsErrorInfo: { table: string; message: string } | null;
+  dismissRlsWarning: () => void;
+  showRlsModal: boolean;
+  setShowRlsModal: (show: boolean) => void;
+  syncLocalToSupabase: () => Promise<{ success: boolean; count: number; error?: string }>;
   
   // Data
   bales: Bale[];
@@ -178,15 +186,23 @@ interface StoreContextType {
 
 const StoreContext = createContext<StoreContextType | undefined>(undefined);
 
-  // Helper for deterministic roles
+// Strict Authorized Credentials:
+// ONLY Admin: villotafrankedward@gmail.com / 12345678
+// ONLY Staff: frankvillota905@gmail.com / 12345678
+// EVERY other sign-up/account is strictly a customer to prevent unauthorized access.
+export const ADMIN_EMAIL = 'villotafrankedward@gmail.com';
+export const ADMIN_PASSWORD = '12345678';
+export const STAFF_EMAIL = 'frankvillota905@gmail.com';
+export const STAFF_PASSWORD = '12345678';
+
+// Helper for deterministic roles
 export function determineRole(email: string): UserRole {
   const normalized = email.trim().toLowerCase();
-  if (
-    normalized === 'villotafrankedward@gmail.com' ||
-    normalized === 'frankvillota905@gmail.com' ||
-    normalized === 'frankvillota905@gmail.om'
-  ) {
+  if (normalized === ADMIN_EMAIL) {
     return 'owner';
+  }
+  if (normalized === STAFF_EMAIL) {
+    return 'staff';
   }
   return 'customer';
 }
@@ -229,14 +245,19 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       try {
         const parsed = JSON.parse(saved);
         if (parsed && parsed.email && parsed.role && parsed.role !== 'guest') {
-          // Frank Villota is the Owner
-          if (
-            parsed.email.toLowerCase() === 'frankvillota905@gmail.com' ||
-            parsed.email.toLowerCase() === 'frankvillota905@gmail.om' ||
-            parsed.email.toLowerCase() === 'villotafrankedward@gmail.com'
-          ) {
+          const normalized = parsed.email.toLowerCase().trim();
+          // STRICT ACCESS LIMIT:
+          // Admin is ONLY villotafrankedward@gmail.com
+          // Staff is ONLY frankvillota905@gmail.com
+          // All other accounts are strictly customers
+          if (normalized === ADMIN_EMAIL) {
             parsed.role = 'owner';
-            parsed.displayName = parsed.displayName || 'Frank Edward Villota (Owner)';
+            parsed.displayName = parsed.displayName || 'Frank Edward Villota (Admin)';
+          } else if (normalized === STAFF_EMAIL) {
+            parsed.role = 'staff';
+            parsed.displayName = parsed.displayName || 'Staff (Frank Villota)';
+          } else {
+            parsed.role = 'customer';
           }
           return parsed;
         }
@@ -251,52 +272,182 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     const normalized = email.trim().toLowerCase();
     const pwd = (password || '').trim();
 
-    // 1. Strict Owner Authentication (Frank Villota)
-    if (
-      normalized === 'villotafrankedward@gmail.com' ||
-      normalized === 'frankvillota905@gmail.com' ||
-      normalized === 'frankvillota905@gmail.om'
-    ) {
-      if (pwd !== '12345678') {
-        throw new Error('Incorrect password for Owner account.');
+    const isAdmin = normalized === ADMIN_EMAIL;
+    const isStaff = normalized === STAFF_EMAIL;
+
+    // 1. Strict Admin Authentication (villotafrankedward@gmail.com / 12345678)
+    if (isAdmin) {
+      if (pwd !== ADMIN_PASSWORD) {
+        throw new Error('Incorrect password for Admin account.');
       }
-      const ownerUser: UserProfile = {
-        uid: 'owner-frank',
+      const adminUser: UserProfile = {
+        uid: 'admin-villotafrankedward',
         email: normalized,
-        displayName: 'Frank Edward Villota (Owner)',
+        displayName: 'Frank Edward Villota (Admin)',
         role: 'owner',
         isGuest: false,
+        provider: 'email',
       };
-      setCurrentUser(ownerUser);
-      localStorage.setItem('exins_user', JSON.stringify(ownerUser));
+      // Auto-provision or sign in to Supabase Auth so session token is present
+      try {
+        const { error: supaErr } = await supabase.auth.signInWithPassword({
+          email: normalized,
+          password: pwd,
+        });
+        if (supaErr && supaErr.message.toLowerCase().includes('invalid')) {
+          await supabase.auth.signUp({
+            email: normalized,
+            password: pwd,
+            options: {
+              data: {
+                full_name: 'Frank Edward Villota (Admin)',
+                role: 'owner',
+              },
+            },
+          });
+        }
+      } catch {}
+
+      setCurrentUser(adminUser);
+      localStorage.setItem('exins_user', JSON.stringify(adminUser));
+      fetch('/api/users/sync', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(cleanData(adminUser)),
+      }).catch(() => {});
       return true;
     }
 
-    // 3. All other sign-ins automatically become Customer
+    // 2. Strict Staff Authentication (frankvillota905@gmail.com / 12345678)
+    if (isStaff) {
+      if (pwd !== STAFF_PASSWORD) {
+        throw new Error('Incorrect password for Staff account.');
+      }
+      const staffUser: UserProfile = {
+        uid: 'staff-frankvillota905',
+        email: normalized,
+        displayName: 'Staff (Frank Villota)',
+        role: 'staff',
+        isGuest: false,
+        provider: 'email',
+      };
+      // Auto-provision or sign in to Supabase Auth so session token is present
+      try {
+        const { error: supaErr } = await supabase.auth.signInWithPassword({
+          email: normalized,
+          password: pwd,
+        });
+        if (supaErr && supaErr.message.toLowerCase().includes('invalid')) {
+          await supabase.auth.signUp({
+            email: normalized,
+            password: pwd,
+            options: {
+              data: {
+                full_name: 'Staff (Frank Villota)',
+                role: 'staff',
+              },
+            },
+          });
+        }
+      } catch {}
+
+      setCurrentUser(staffUser);
+      localStorage.setItem('exins_user', JSON.stringify(staffUser));
+      fetch('/api/users/sync', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(cleanData(staffUser)),
+      }).catch(() => {});
+      return true;
+    }
+
+    // 3. For ALL other accounts:
+    // They are strictly customers and cannot access Admin or Staff views
+    if (pwd) {
+      try {
+        const { data: authData, error: authError } = await supabase.auth.signInWithPassword({
+          email: normalized,
+          password: pwd,
+        });
+
+        if (!authError && authData?.user) {
+          const u = authData.user;
+          const userProfile: UserProfile = {
+            uid: u.id,
+            email: u.email || normalized,
+            displayName: u.user_metadata?.full_name || u.user_metadata?.name || normalized.split('@')[0],
+            role: 'customer', // strictly customer
+            phone: u.user_metadata?.phone || '',
+            address: u.user_metadata?.address || '',
+            isGuest: false,
+            provider: (u.app_metadata?.provider as any) || 'email',
+          };
+          setCurrentUser(userProfile);
+          localStorage.setItem('exins_user', JSON.stringify(userProfile));
+          fetch('/api/users/sync', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(cleanData(userProfile)),
+          }).catch(() => {});
+          return true;
+        }
+
+        if (authError) {
+          const existingCust = customers.find((c) => c.email.toLowerCase() === normalized);
+          if (existingCust) {
+            const userProfile: UserProfile = {
+              ...existingCust,
+              role: 'customer',
+              isGuest: false,
+            };
+            setCurrentUser(userProfile);
+            localStorage.setItem('exins_user', JSON.stringify(userProfile));
+            fetch('/api/users/sync', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(cleanData(userProfile)),
+            }).catch(() => {});
+            return true;
+          }
+          throw new Error(authError.message || 'Invalid email or password.');
+        }
+      } catch (err: any) {
+        throw err;
+      }
+    }
+
+    // 4. Customer fallback
     const existing = customers.find((c) => c.email.toLowerCase() === normalized);
     const customerUser: UserProfile = existing
-      ? { ...existing, isGuest: false }
+      ? { ...existing, role: 'customer', isGuest: false }
       : {
           uid: `cust_${Date.now()}`,
           email: normalized,
           displayName: normalized.includes('@') ? normalized.split('@')[0] : 'Customer',
           role: 'customer',
           isGuest: false,
+          provider: 'email',
         };
     setCurrentUser(customerUser);
     localStorage.setItem('exins_user', JSON.stringify(customerUser));
+    fetch('/api/users/sync', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(cleanData(customerUser)),
+    }).catch(() => {});
     return true;
   };
 
   const signupAs = async (
     nameOrParams: string | SignUpParams,
     emailArg?: string,
-    _passwordArg?: string,
+    passwordArg?: string,
     phoneArg?: string,
     addressArg?: string
   ): Promise<boolean> => {
     let name = '';
     let email = '';
+    let password = '';
     let phone = '';
     let address = '';
     let provider: 'email' | 'google' = 'email';
@@ -305,6 +456,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     if (typeof nameOrParams === 'object') {
       name = nameOrParams.name;
       email = nameOrParams.email;
+      password = nameOrParams.password || '';
       phone = nameOrParams.phone || '';
       address = nameOrParams.address || '';
       provider = nameOrParams.provider || 'email';
@@ -312,31 +464,64 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     } else {
       name = nameOrParams;
       email = emailArg || '';
+      password = passwordArg || '';
       phone = phoneArg || '';
       address = addressArg || '';
     }
 
     const normalized = email.trim().toLowerCase();
-
-    // Prevent customers from attempting to sign up as owner or staff
-    if (
-      normalized === 'villotafrankedward@gmail.com' ||
-      normalized === 'frankvillota905@gmail.com' ||
-      normalized === 'frankvillota905@gmail.om'
-    ) {
+    if (normalized === ADMIN_EMAIL || normalized === STAFF_EMAIL) {
       throw new Error(
-        'This administrative account already exists. Please use Sign In with your authorized password.'
+        'This administrative or staff account already exists. Please use Sign In with your authorized password.'
       );
     }
 
-    const customerUid = uid || `cust_${Date.now()}`;
+    let realUid = uid;
+
+    // 1. Register with real Supabase Auth as customer
+    if (normalized && password) {
+      try {
+        const { data: signData, error: signError } = await supabase.auth.signUp({
+          email: normalized,
+          password: password,
+          options: {
+            data: {
+              full_name: name.trim(),
+              name: name.trim(),
+              phone: phone.trim(),
+              address: address.trim(),
+              role: 'customer',
+            },
+          },
+        });
+
+        if (signData?.user?.id) {
+          realUid = signData.user.id;
+        } else if (signError) {
+          console.warn('Supabase Auth signUp:', signError.message);
+          if (signError.message.toLowerCase().includes('already registered')) {
+            const { data: signInData } = await supabase.auth.signInWithPassword({
+              email: normalized,
+              password,
+            });
+            if (signInData?.user?.id) {
+              realUid = signInData.user.id;
+            }
+          }
+        }
+      } catch (authErr: any) {
+        console.warn('Supabase auth signup notice:', authErr?.message || authErr);
+      }
+    }
+
+    const customerUid = realUid || uid || `cust_${Date.now()}`;
     const customerUser: UserProfile = {
       uid: customerUid,
       email: normalized,
       displayName: name.trim() || (normalized.includes('@') ? normalized.split('@')[0] : 'Customer'),
       phone: phone.trim(),
       address: address.trim(),
-      role: 'customer',
+      role: 'customer', // strictly customer
       provider,
       isGuest: false,
       createdAt: new Date().toISOString(),
@@ -344,15 +529,33 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
     setCurrentUser(customerUser);
     localStorage.setItem('exins_user', JSON.stringify(customerUser));
-    setCustomers((prev) => [customerUser, ...prev.filter((c) => c.uid !== customerUid)]);
+    setCustomers((prev) => {
+      const updated = [customerUser, ...prev.filter((c) => c.uid !== customerUid)];
+      localStorage.setItem('exins_customers', JSON.stringify(updated));
+      return updated;
+    });
 
-    // Save to Supabase customers and users collection persistently
+    // Save to Supabase & Cloud SQL customers and users tables
     try {
       await supabase.from('customers').upsert(cleanData({ ...customerUser, id: customerUid }));
-      await supabase.from('users').upsert(cleanData({ ...customerUser, id: customerUid }));
-    } catch (err) {
-      console.warn('Supabase customer save notice:', err);
-    }
+      fetch('/api/customers', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(cleanData({ ...customerUser, id: customerUid })),
+      }).catch(() => {});
+      fetch('/api/users/sync', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(cleanData({
+          uid: customerUid,
+          email: normalized,
+          displayName: customerUser.displayName,
+          role: 'customer',
+          phone: customerUser.phone,
+          address: customerUser.address,
+        })),
+      }).catch(() => {});
+    } catch {}
 
     return true;
   };
@@ -384,45 +587,49 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         }
       }
 
+      // Check if session became available after OAuth call
       if (!email) {
-        // Prompt for Google email fallback
-        email = prompt('Enter your Google Account email (e.g. name@gmail.com):') || '';
-        if (!email) {
-          throw new Error('Google Sign-In was cancelled.');
+        const { data: updatedSession } = await supabase.auth.getSession();
+        if (updatedSession?.session?.user) {
+          email = updatedSession.session.user.email?.trim().toLowerCase() || '';
+          displayName =
+            updatedSession.session.user.user_metadata?.full_name ||
+            updatedSession.session.user.user_metadata?.name ||
+            'Customer';
+          uid = updatedSession.session.user.id;
         }
-        email = email.trim().toLowerCase();
-        displayName = email.split('@')[0];
-        uid = `goog_${Date.now()}`;
       }
 
-      // Check if this email is owner (Frank Villota)
-      if (
-        email === 'villotafrankedward@gmail.com' ||
-        email === 'frankvillota905@gmail.com' ||
-        email === 'frankvillota905@gmail.om'
-      ) {
-        const ownerUser: UserProfile = {
-          uid: 'owner-frank',
-          email,
-          displayName: displayName || 'Frank Edward Villota (Owner)',
-          role: 'owner',
-          isGuest: false,
-          provider: 'google',
-        };
-        setCurrentUser(ownerUser);
-        localStorage.setItem('exins_user', JSON.stringify(ownerUser));
-        return { needsDetails: false, userProfile: ownerUser };
+      if (!email) {
+        throw new Error(
+          'Google Sign-In popup was opened or blocked by browser settings. Please use the direct Sign In / Sign Up form with your email and password.'
+        );
       }
 
-      // Check if existing customer profile already has phone and address
+      // STRICT SECURITY: Admin and Staff MUST provide their authorized password (12345678).
+      // They cannot bypass credentials via Google Fast Login.
+      if (email === ADMIN_EMAIL || email === STAFF_EMAIL) {
+        throw new Error(
+          'Administrative and Staff accounts must sign in using the Sign In tab with their authorized password (12345678) to ensure system security.'
+        );
+      }
+
+      // ALL other Google sign-ups / logins are strictly CUSTOMERS
       const existing = customers.find((c) => c.email.toLowerCase() === email || c.uid === uid);
       if (existing && existing.phone && existing.address) {
         const fullCustomer: UserProfile = {
           ...existing,
+          role: 'customer', // strictly customer
           isGuest: false,
         };
         setCurrentUser(fullCustomer);
         localStorage.setItem('exins_user', JSON.stringify(fullCustomer));
+        // Sync user to Cloud SQL
+        fetch('/api/users/sync', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(fullCustomer),
+        }).catch(() => {});
         return { needsDetails: false, userProfile: fullCustomer };
       }
 
@@ -430,7 +637,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       return {
         needsDetails: true,
         googleUser: {
-          uid,
+          uid: uid || `goog_${Date.now()}`,
           email,
           displayName: existing?.displayName || displayName,
         },
@@ -458,22 +665,84 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     });
   };
 
-  const logout = () => {
+  const logout = async () => {
+    try {
+      await supabase.auth.signOut();
+    } catch {}
     setCurrentUser(GUEST_USER);
     localStorage.removeItem('exins_user');
   };
 
-  // State collections - initialized strictly empty.
-  const [customers, setCustomers] = useState<UserProfile[]>([]);
-  const [bales, setBales] = useState<Bale[]>([]);
-  const [categories, setCategories] = useState<Category[]>([]);
-  const [products, setProducts] = useState<Product[]>([]);
-  const [suppliers, setSuppliers] = useState<Supplier[]>([]);
-  const [expenseAccounts, setExpenseAccounts] = useState<ExpenseAccount[]>([]);
-  const [expenses, setExpenses] = useState<Expense[]>([]);
-  const [orders, setOrders] = useState<Order[]>([]);
-  const [transactions, setTransactions] = useState<Transaction[]>([]);
-  const [itemStatusLogs, setItemStatusLogs] = useState<ItemStatusLog[]>([]);
+  // Supabase RLS state
+  const [rlsBlocked, setRlsBlocked] = useState<boolean>(false);
+  const [rlsErrorInfo, setRlsErrorInfo] = useState<{ table: string; message: string } | null>(null);
+  const [showRlsModal, setShowRlsModal] = useState<boolean>(false);
+  const dismissRlsWarning = () => setRlsBlocked(false);
+
+  // Helper function to safely read cached local array
+  const loadLocalCache = <T,>(key: string): T[] => {
+    try {
+      const saved = localStorage.getItem(key);
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
+  };
+
+  // State collections initialized with local storage cache so pending RLS items remain accessible
+  const [customers, setCustomers] = useState<UserProfile[]>(() => loadLocalCache<UserProfile>('exins_customers'));
+  const [bales, setBales] = useState<Bale[]>(() => loadLocalCache<Bale>('exins_bales'));
+  const [categories, setCategories] = useState<Category[]>(() => loadLocalCache<Category>('exins_categories'));
+  const [products, setProducts] = useState<Product[]>(() => loadLocalCache<Product>('exins_products'));
+  const [suppliers, setSuppliers] = useState<Supplier[]>(() => loadLocalCache<Supplier>('exins_suppliers'));
+  const [expenseAccounts, setExpenseAccounts] = useState<ExpenseAccount[]>(() => loadLocalCache<ExpenseAccount>('exins_expense_accounts'));
+  const [expenses, setExpenses] = useState<Expense[]>(() => loadLocalCache<Expense>('exins_expenses'));
+  const [orders, setOrders] = useState<Order[]>(() => loadLocalCache<Order>('exins_orders'));
+  const [transactions, setTransactions] = useState<Transaction[]>(() => loadLocalCache<Transaction>('exins_transactions'));
+  const [itemStatusLogs, setItemStatusLogs] = useState<ItemStatusLog[]>(() => loadLocalCache<ItemStatusLog>('exins_item_logs'));
+
+  // Sync local data to Supabase
+  const syncLocalToSupabase = async (): Promise<{ success: boolean; count: number; error?: string }> => {
+    let syncedCount = 0;
+    try {
+      const tablePairs: Array<{ table: string; items: any[] }> = [
+        { table: 'bales', items: bales },
+        { table: 'categories', items: categories },
+        { table: 'products', items: products },
+        { table: 'suppliers', items: suppliers },
+        { table: 'expense_accounts', items: expenseAccounts },
+        { table: 'expenses', items: expenses },
+        { table: 'orders', items: orders },
+        { table: 'transactions', items: transactions },
+        { table: 'item_logs', items: itemStatusLogs },
+        { table: 'customers', items: customers },
+      ];
+
+      for (const pair of tablePairs) {
+        const endpoint = pair.table.replace('_', '-');
+        for (const item of pair.items) {
+          fetch(`/api/${endpoint}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(cleanData(item)),
+          }).catch(() => {});
+          const res = await supabase.from(pair.table).upsert(cleanData(item));
+          if (!res.error) {
+            syncedCount++;
+          } else if (res.error.code === '42501' || res.error.message.includes('row-level security')) {
+            setRlsBlocked(true);
+            setRlsErrorInfo({ table: pair.table, message: res.error.message });
+            return { success: false, count: syncedCount, error: res.error.message };
+          }
+        }
+      }
+      setRlsBlocked(false);
+      setRlsErrorInfo(null);
+      return { success: true, count: syncedCount };
+    } catch (err: any) {
+      return { success: false, count: syncedCount, error: err?.message || 'Sync failed' };
+    }
+  };
 
   // Cart state
   const [cart, setCart] = useState<CartItem[]>(() => {
@@ -533,74 +802,212 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     localStorage.setItem('exins_cart', JSON.stringify(cart));
   }, [cart]);
 
-  // Supabase real-time sync & data loading on startup - purely driven by user's Supabase database
+  // Listen to Supabase auth state changes to automatically receive the real authenticated user
   useEffect(() => {
-    // Purge any old stale local cache on startup
-    const legacyKeys = [
-      'exins_customers',
-      'exins_bales',
-      'exins_categories',
-      'exins_products',
-      'exins_suppliers',
-      'exins_expense_accounts',
-      'exins_expenses',
-      'exins_orders',
-      'exins_transactions',
-      'exins_item_logs',
-      'exins_placed_orders',
-    ];
-    legacyKeys.forEach((k) => localStorage.removeItem(k));
+    const handleAuthUser = (user: any) => {
+      if (!user) return;
+      const normalized = (user.email || '').toLowerCase().trim();
+      const isAdmin = normalized === ADMIN_EMAIL;
+      const isStaff = normalized === STAFF_EMAIL;
 
+      // Strictly limit roles: ONLY Admin can be owner, ONLY Staff can be staff.
+      // Everyone else is strictly customer.
+      const role: UserRole = isAdmin ? 'owner' : isStaff ? 'staff' : 'customer';
+      const displayName = isAdmin
+        ? 'Frank Edward Villota (Admin)'
+        : isStaff
+        ? 'Staff (Frank Villota)'
+        : user.user_metadata?.full_name ||
+          user.user_metadata?.name ||
+          (user.email?.split('@')[0] || 'Customer');
+
+      const userProfile: UserProfile = {
+        uid: user.id,
+        email: user.email || '',
+        displayName,
+        role,
+        phone: user.user_metadata?.phone || '',
+        address: user.user_metadata?.address || '',
+        isGuest: false,
+        provider: (user.app_metadata?.provider as any) || 'email',
+      };
+      setCurrentUser(userProfile);
+      localStorage.setItem('exins_user', JSON.stringify(userProfile));
+    };
+
+    // Check initial session
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      if (session?.user) {
+        handleAuthUser(session.user);
+      }
+    });
+
+    // Subscribe to auth state updates
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (session?.user) {
+        handleAuthUser(session.user);
+      } else if (_event === 'SIGNED_OUT') {
+        setCurrentUser(GUEST_USER);
+        localStorage.removeItem('exins_user');
+      }
+    });
+
+    return () => {
+      subscription.unsubscribe();
+    };
+  }, []);
+
+  // Real-time sync & data loading on startup - connects with Cloud SQL (PostgreSQL) and Supabase
+  useEffect(() => {
     const syncTable = async <T,>(
       tableName: string,
       setter: React.Dispatch<React.SetStateAction<T[]>>,
       cacheKey: string
     ) => {
+      const apiEndpoint = tableName.replace('_', '-');
+      let loadedData: T[] | null = null;
+
+      // 1. Query Cloud SQL relational backend
+      try {
+        const apiRes = await fetch(`/api/${apiEndpoint}`);
+        if (apiRes.ok) {
+          const apiJson = await apiRes.json();
+          if (Array.isArray(apiJson) && apiJson.length > 0) {
+            loadedData = apiJson as T[];
+          }
+        }
+      } catch (err) {
+        console.warn(`Cloud SQL fetch note for ${tableName}:`, err);
+      }
+
+      // 2. Query Supabase
       try {
         const { data, error } = await supabase.from(tableName).select('*');
         if (!error && Array.isArray(data)) {
-          // If Supabase is empty, data is [] and state is set to []
-          setter(data as T[]);
-          localStorage.setItem(cacheKey, JSON.stringify(data));
+          if (data.length > 0) {
+            if (!loadedData || loadedData.length === 0) {
+              loadedData = data as T[];
+              // Sync to Cloud SQL in background
+              data.forEach((it: any) => {
+                fetch(`/api/${apiEndpoint}`, {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify(cleanData(it)),
+                }).catch(() => {});
+              });
+            }
+          }
         } else if (error) {
           console.warn(`Supabase sync note for ${tableName}:`, error.message);
-          setter([]);
-          localStorage.removeItem(cacheKey);
+          if (
+            error.code === '42501' ||
+            error.message.toLowerCase().includes('row-level security') ||
+            error.message.toLowerCase().includes('permission denied')
+          ) {
+            setRlsBlocked(true);
+            setRlsErrorInfo({ table: tableName, message: error.message });
+          }
         }
       } catch (e: any) {
         console.warn(`Supabase sync note for ${tableName}:`, e?.message || e);
+      }
+
+      // 3. Fallback to localStorage or save loaded data
+      if (loadedData && loadedData.length > 0) {
+        setter(loadedData);
+        localStorage.setItem(cacheKey, JSON.stringify(loadedData));
+      } else {
+        const cached = localStorage.getItem(cacheKey);
+        if (cached) {
+          try {
+            const parsed = JSON.parse(cached);
+            if (Array.isArray(parsed) && parsed.length > 0) {
+              setter(parsed as T[]);
+              parsed.forEach((it: any) => {
+                fetch(`/api/${apiEndpoint}`, {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify(cleanData(it)),
+                }).catch(() => {});
+                Promise.resolve(supabase.from(tableName).upsert(cleanData(it))).catch(() => {});
+              });
+              return;
+            }
+          } catch {}
+        }
         setter([]);
       }
     };
 
-    syncTable('bales', setBales, 'exins_bales');
-    syncTable('categories', setCategories, 'exins_categories');
-    syncTable('products', setProducts, 'exins_products');
-    syncTable('suppliers', setSuppliers, 'exins_suppliers');
-    syncTable('expense_accounts', setExpenseAccounts, 'exins_expense_accounts');
-    syncTable('expenses', setExpenses, 'exins_expenses');
-    syncTable('orders', setOrders, 'exins_orders');
-    syncTable('transactions', setTransactions, 'exins_transactions');
-    syncTable('item_logs', setItemStatusLogs, 'exins_item_logs');
-    syncTable('customers', setCustomers, 'exins_customers');
+    const syncMap: Record<string, () => Promise<void>> = {
+      bales: () => syncTable('bales', setBales, 'exins_bales'),
+      categories: () => syncTable('categories', setCategories, 'exins_categories'),
+      products: () => syncTable('products', setProducts, 'exins_products'),
+      suppliers: () => syncTable('suppliers', setSuppliers, 'exins_suppliers'),
+      expense_accounts: () => syncTable('expense_accounts', setExpenseAccounts, 'exins_expense_accounts'),
+      expenses: () => syncTable('expenses', setExpenses, 'exins_expenses'),
+      orders: () => syncTable('orders', setOrders, 'exins_orders'),
+      transactions: () => syncTable('transactions', setTransactions, 'exins_transactions'),
+      item_logs: () => syncTable('item_logs', setItemStatusLogs, 'exins_item_logs'),
+      customers: () => syncTable('customers', setCustomers, 'exins_customers'),
+    };
 
-    // Subscribe to realtime database changes
+    // Initial load for all tables
+    Object.values(syncMap).forEach((fn) => fn());
+
+    // 1. Live Server-Sent Events (SSE) from Cloud SQL (PostgreSQL) backend
+    let eventSource: EventSource | null = null;
+    try {
+      eventSource = new EventSource('/api/events');
+      eventSource.onmessage = (event) => {
+        try {
+          const payload = JSON.parse(event.data);
+          if (payload?.type === 'db_change' && payload?.table && syncMap[payload.table]) {
+            syncMap[payload.table]();
+          }
+        } catch {}
+      };
+    } catch (e) {
+      console.warn('SSE connection note:', e);
+    }
+
+    // 2. Realtime WebSocket subscription from Supabase
     const channel = supabase
       .channel('public:exins-sync')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'bales' }, () => syncTable('bales', setBales, 'exins_bales'))
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'categories' }, () => syncTable('categories', setCategories, 'exins_categories'))
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'products' }, () => syncTable('products', setProducts, 'exins_products'))
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'suppliers' }, () => syncTable('suppliers', setSuppliers, 'exins_suppliers'))
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'expense_accounts' }, () => syncTable('expense_accounts', setExpenseAccounts, 'exins_expense_accounts'))
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'expenses' }, () => syncTable('expenses', setExpenses, 'exins_expenses'))
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'orders' }, () => syncTable('orders', setOrders, 'exins_orders'))
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'transactions' }, () => syncTable('transactions', setTransactions, 'exins_transactions'))
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'item_logs' }, () => syncTable('item_logs', setItemStatusLogs, 'exins_item_logs'))
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'customers' }, () => syncTable('customers', setCustomers, 'exins_customers'))
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'bales' }, () => syncMap.bales?.())
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'categories' }, () => syncMap.categories?.())
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'products' }, () => syncMap.products?.())
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'suppliers' }, () => syncMap.suppliers?.())
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'expense_accounts' }, () => syncMap.expense_accounts?.())
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'expenses' }, () => syncMap.expenses?.())
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'orders' }, () => syncMap.orders?.())
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'transactions' }, () => syncMap.transactions?.())
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'item_logs' }, () => syncMap.item_logs?.())
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'customers' }, () => syncMap.customers?.())
       .subscribe();
+
+    // 3. Tab focus & visibility change listener (ensures fresh data when device wakes or tab is activated)
+    const syncAll = () => {
+      Object.values(syncMap).forEach((fn) => fn());
+    };
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        syncAll();
+      }
+    };
+    window.addEventListener('visibilitychange', handleVisibilityChange);
+    window.addEventListener('focus', syncAll);
+
+    // 4. Periodic heartbeat sync (every 12 seconds) for guaranteed cross-device consistency
+    const intervalId = setInterval(syncAll, 12000);
 
     return () => {
       supabase.removeChannel(channel);
+      if (eventSource) eventSource.close();
+      window.removeEventListener('visibilitychange', handleVisibilityChange);
+      window.removeEventListener('focus', syncAll);
+      clearInterval(intervalId);
     };
   }, []);
 
@@ -766,6 +1173,42 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     setCart((prev) => prev.filter((item) => !item.selected));
   };
 
+  // Helper to execute database operations across Cloud SQL (PostgreSQL) and Supabase
+  const executeSupabaseOperation = async (
+    tableName: string,
+    op: () => PromiseLike<any>,
+    apiAction?: { method: 'POST' | 'PATCH' | 'DELETE'; id?: string; data?: any }
+  ) => {
+    if (apiAction) {
+      const endpoint = tableName.replace('_', '-');
+      const url = apiAction.id && apiAction.method !== 'POST' ? `/api/${endpoint}/${apiAction.id}` : `/api/${endpoint}`;
+      fetch(url, {
+        method: apiAction.method,
+        headers: { 'Content-Type': 'application/json' },
+        body: apiAction.data ? JSON.stringify(cleanData(apiAction.data)) : undefined,
+      }).catch((e) => console.warn(`Cloud SQL /api/${endpoint} note:`, e));
+    }
+
+    try {
+      const res = await op();
+      if (res?.error) {
+        console.warn(`Supabase ${tableName} note:`, res.error);
+        if (
+          res.error.code === '42501' ||
+          res.error.message?.toLowerCase().includes('row-level security') ||
+          res.error.message?.toLowerCase().includes('permission denied')
+        ) {
+          setRlsBlocked(true);
+          setRlsErrorInfo({ table: tableName, message: res.error.message });
+        }
+      }
+      return res;
+    } catch (e: any) {
+      console.warn(`Supabase ${tableName} exception:`, e);
+      return null;
+    }
+  };
+
   // Bale Management
   const addBale = async (baleData: Omit<Bale, 'id' | 'totalSalesMade' | 'createdAt'>) => {
     const id = `bale_${Date.now()}`;
@@ -776,30 +1219,17 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       createdAt: new Date().toISOString(),
     };
     setBales((prev) => [newBale, ...prev]);
-
-    try {
-      await supabase.from('bales').upsert(cleanData(newBale));
-    } catch (err) {
-      console.warn('Supabase bales insert error:', err);
-    }
+    await executeSupabaseOperation('bales', () => supabase.from('bales').upsert(cleanData(newBale)), { method: 'POST', data: newBale });
   };
 
   const updateBale = async (id: string, updates: Partial<Bale>) => {
     setBales((prev) => prev.map((b) => (b.id === id ? { ...b, ...updates } : b)));
-    try {
-      await supabase.from('bales').update(cleanData(updates)).eq('id', id);
-    } catch (err) {
-      console.warn('Supabase bales update error:', err);
-    }
+    await executeSupabaseOperation('bales', () => supabase.from('bales').update(cleanData(updates)).eq('id', id), { method: 'PATCH', id, data: updates });
   };
 
   const deleteBale = async (id: string) => {
     setBales((prev) => prev.filter((b) => b.id !== id));
-    try {
-      await supabase.from('bales').delete().eq('id', id);
-    } catch (err) {
-      console.warn('Supabase bales delete error:', err);
-    }
+    await executeSupabaseOperation('bales', () => supabase.from('bales').delete().eq('id', id), { method: 'DELETE', id });
   };
 
   // Category Management
@@ -812,30 +1242,17 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       createdAt: new Date().toISOString(),
     };
     setCategories((prev) => [newCat, ...prev]);
-
-    try {
-      await supabase.from('categories').upsert(cleanData(newCat));
-    } catch (err) {
-      console.warn('Supabase categories insert error:', err);
-    }
+    await executeSupabaseOperation('categories', () => supabase.from('categories').upsert(cleanData(newCat)), { method: 'POST', data: newCat });
   };
 
   const updateCategory = async (id: string, updates: Partial<Category>) => {
     setCategories((prev) => prev.map((c) => (c.id === id ? { ...c, ...updates } : c)));
-    try {
-      await supabase.from('categories').update(cleanData(updates)).eq('id', id);
-    } catch (err) {
-      console.warn('Supabase categories update error:', err);
-    }
+    await executeSupabaseOperation('categories', () => supabase.from('categories').update(cleanData(updates)).eq('id', id), { method: 'PATCH', id, data: updates });
   };
 
   const deleteCategory = async (id: string) => {
     setCategories((prev) => prev.filter((c) => c.id !== id));
-    try {
-      await supabase.from('categories').delete().eq('id', id);
-    } catch (err) {
-      console.warn('Supabase categories delete error:', err);
-    }
+    await executeSupabaseOperation('categories', () => supabase.from('categories').delete().eq('id', id), { method: 'DELETE', id });
   };
 
   // Product Management
@@ -847,30 +1264,17 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       createdAt: new Date().toISOString(),
     };
     setProducts((prev) => [newProd, ...prev]);
-
-    try {
-      await supabase.from('products').upsert(cleanData(newProd));
-    } catch (err) {
-      console.warn('Supabase products insert error:', err);
-    }
+    await executeSupabaseOperation('products', () => supabase.from('products').upsert(cleanData(newProd)), { method: 'POST', data: newProd });
   };
 
   const updateProduct = async (id: string, updates: Partial<Product>) => {
     setProducts((prev) => prev.map((p) => (p.id === id ? { ...p, ...updates } : p)));
-    try {
-      await supabase.from('products').update(cleanData(updates)).eq('id', id);
-    } catch (err) {
-      console.warn('Supabase products update error:', err);
-    }
+    await executeSupabaseOperation('products', () => supabase.from('products').update(cleanData(updates)).eq('id', id), { method: 'PATCH', id, data: updates });
   };
 
   const deleteProduct = async (id: string) => {
     setProducts((prev) => prev.filter((p) => p.id !== id));
-    try {
-      await supabase.from('products').delete().eq('id', id);
-    } catch (err) {
-      console.warn('Supabase products delete error:', err);
-    }
+    await executeSupabaseOperation('products', () => supabase.from('products').delete().eq('id', id), { method: 'DELETE', id });
   };
 
   const toggleProductBarcodeStatus = async (id: string) => {
@@ -890,30 +1294,17 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       createdAt: new Date().toISOString(),
     };
     setSuppliers((prev) => [newSupp, ...prev]);
-
-    try {
-      await supabase.from('suppliers').upsert(cleanData(newSupp));
-    } catch (err) {
-      console.warn('Supabase suppliers insert error:', err);
-    }
+    await executeSupabaseOperation('suppliers', () => supabase.from('suppliers').upsert(cleanData(newSupp)), { method: 'POST', data: newSupp });
   };
 
   const updateSupplier = async (id: string, updates: Partial<Supplier>) => {
     setSuppliers((prev) => prev.map((s) => (s.id === id ? { ...s, ...updates } : s)));
-    try {
-      await supabase.from('suppliers').update(cleanData(updates)).eq('id', id);
-    } catch (err) {
-      console.warn('Supabase suppliers update error:', err);
-    }
+    await executeSupabaseOperation('suppliers', () => supabase.from('suppliers').update(cleanData(updates)).eq('id', id), { method: 'PATCH', id, data: updates });
   };
 
   const deleteSupplier = async (id: string) => {
     setSuppliers((prev) => prev.filter((s) => s.id !== id));
-    try {
-      await supabase.from('suppliers').delete().eq('id', id);
-    } catch (err) {
-      console.warn('Supabase suppliers delete error:', err);
-    }
+    await executeSupabaseOperation('suppliers', () => supabase.from('suppliers').delete().eq('id', id), { method: 'DELETE', id });
   };
 
   // Expense Account Management
@@ -926,30 +1317,17 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       createdAt: new Date().toISOString(),
     };
     setExpenseAccounts((prev) => [newAcc, ...prev]);
-
-    try {
-      await supabase.from('expense_accounts').upsert(cleanData(newAcc));
-    } catch (err) {
-      console.warn('Supabase expense_accounts insert error:', err);
-    }
+    await executeSupabaseOperation('expense_accounts', () => supabase.from('expense_accounts').upsert(cleanData(newAcc)), { method: 'POST', data: newAcc });
   };
 
   const updateExpenseAccount = async (id: string, updates: Partial<ExpenseAccount>) => {
     setExpenseAccounts((prev) => prev.map((a) => (a.id === id ? { ...a, ...updates } : a)));
-    try {
-      await supabase.from('expense_accounts').update(cleanData(updates)).eq('id', id);
-    } catch (err) {
-      console.warn('Supabase expense_accounts update error:', err);
-    }
+    await executeSupabaseOperation('expense_accounts', () => supabase.from('expense_accounts').update(cleanData(updates)).eq('id', id), { method: 'PATCH', id, data: updates });
   };
 
   const deleteExpenseAccount = async (id: string) => {
     setExpenseAccounts((prev) => prev.filter((a) => a.id !== id));
-    try {
-      await supabase.from('expense_accounts').delete().eq('id', id);
-    } catch (err) {
-      console.warn('Supabase expense_accounts delete error:', err);
-    }
+    await executeSupabaseOperation('expense_accounts', () => supabase.from('expense_accounts').delete().eq('id', id), { method: 'DELETE', id });
   };
 
   // Expense Management
@@ -979,12 +1357,8 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     };
     setTransactions((prev) => [newTx, ...prev]);
 
-    try {
-      await supabase.from('expenses').upsert(cleanData(newExp));
-      await supabase.from('transactions').upsert(cleanData(newTx));
-    } catch (err) {
-      console.warn('Supabase expenses error:', err);
-    }
+    await executeSupabaseOperation('expenses', () => supabase.from('expenses').upsert(cleanData(newExp)), { method: 'POST', data: newExp });
+    await executeSupabaseOperation('transactions', () => supabase.from('transactions').upsert(cleanData(newTx)), { method: 'POST', data: newTx });
   };
 
   const deleteExpense = async (id: string) => {
@@ -1004,13 +1378,9 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       });
     }
 
-    try {
-      await supabase.from('expenses').delete().eq('id', id);
-      if (matchingTx) {
-        await supabase.from('transactions').delete().eq('id', matchingTx.id);
-      }
-    } catch (err) {
-      console.warn('Supabase delete expense error:', err);
+    await executeSupabaseOperation('expenses', () => supabase.from('expenses').delete().eq('id', id), { method: 'DELETE', id });
+    if (matchingTx) {
+      await executeSupabaseOperation('transactions', () => supabase.from('transactions').delete().eq('id', matchingTx.id), { method: 'DELETE', id: matchingTx.id });
     }
   };
 
@@ -1023,12 +1393,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       createdAt: new Date().toISOString(),
     };
     setTransactions((prev) => [newTx, ...prev]);
-
-    try {
-      await supabase.from('transactions').upsert(cleanData(newTx));
-    } catch (err) {
-      console.warn('Supabase transactions insert error:', err);
-    }
+    await executeSupabaseOperation('transactions', () => supabase.from('transactions').upsert(cleanData(newTx)), { method: 'POST', data: newTx });
   };
 
   const deleteTransaction = async (id: string) => {
@@ -1041,44 +1406,43 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       return next;
     });
 
-    try {
-      // 2. Delete transaction from Supabase
-      await supabase.from('transactions').delete().eq('id', id);
+    // 2. Delete transaction from Supabase & Cloud SQL
+    await executeSupabaseOperation('transactions', () => supabase.from('transactions').delete().eq('id', id), { method: 'DELETE', id });
 
-      // 3. If linked to an order, delete order
-      const linkedOrderId = targetTx?.orderId;
-      if (linkedOrderId) {
+    // 3. If linked to an order, delete order
+    const linkedOrderId = targetTx?.orderId;
+    if (linkedOrderId) {
+      setOrders((prev) => {
+        const next = prev.filter((o) => o.id !== linkedOrderId);
+        localStorage.setItem('exins_orders', JSON.stringify(next));
+        return next;
+      });
+      await executeSupabaseOperation('orders', () => supabase.from('orders').delete().eq('id', linkedOrderId), { method: 'DELETE', id: linkedOrderId });
+    } else if (targetTx?.description) {
+      // Fallback match: check if order number or order id is mentioned in description
+      const matchedOrder = orders.find(
+        (o) => targetTx.description.includes(o.orderNumber) || targetTx.description.includes(o.id)
+      );
+      if (matchedOrder) {
         setOrders((prev) => {
-          const next = prev.filter((o) => o.id !== linkedOrderId);
+          const next = prev.filter((o) => o.id !== matchedOrder.id);
           localStorage.setItem('exins_orders', JSON.stringify(next));
           return next;
         });
-        await supabase.from('orders').delete().eq('id', linkedOrderId);
-      } else if (targetTx?.description) {
-        // Fallback match: check if order number or order id is mentioned in description
-        const matchedOrder = orders.find(
-          (o) => targetTx.description.includes(o.orderNumber) || targetTx.description.includes(o.id)
-        );
-        if (matchedOrder) {
-          setOrders((prev) => {
-            const next = prev.filter((o) => o.id !== matchedOrder.id);
-            localStorage.setItem('exins_orders', JSON.stringify(next));
-            return next;
-          });
-          await supabase.from('orders').delete().eq('id', matchedOrder.id);
-        }
+        await executeSupabaseOperation('orders', () => supabase.from('orders').delete().eq('id', matchedOrder.id), { method: 'DELETE', id: matchedOrder.id });
       }
+    }
 
-      // 4. If linked to an expense, delete expense
-      const linkedExpenseId = targetTx?.expenseId;
-      if (linkedExpenseId) {
-        setExpenses((prev) => {
-          const next = prev.filter((e) => e.id !== linkedExpenseId);
-          localStorage.setItem('exins_expenses', JSON.stringify(next));
-          return next;
-        });
-        await supabase.from('expenses').delete().eq('id', linkedExpenseId);
-      } else if (targetTx?.flowType === 'outflow') {
+    // 4. If linked to an expense, delete expense
+    const linkedExpenseId = targetTx?.expenseId;
+    if (linkedExpenseId) {
+      setExpenses((prev) => {
+        const next = prev.filter((e) => e.id !== linkedExpenseId);
+        localStorage.setItem('exins_expenses', JSON.stringify(next));
+        return next;
+      });
+      await executeSupabaseOperation('expenses', () => supabase.from('expenses').delete().eq('id', linkedExpenseId), { method: 'DELETE', id: linkedExpenseId });
+    } else if (targetTx?.flowType === 'outflow') {
         const matchedExp = expenses.find(
           (e) =>
             (targetTx.account && e.accountName === targetTx.account && e.amount === targetTx.outflow) ||
@@ -1090,12 +1454,9 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
             localStorage.setItem('exins_expenses', JSON.stringify(next));
             return next;
           });
-          await supabase.from('expenses').delete().eq('id', matchedExp.id);
+          await executeSupabaseOperation('expenses', () => supabase.from('expenses').delete().eq('id', matchedExp.id), { method: 'DELETE', id: matchedExp.id });
         }
       }
-    } catch (err) {
-      console.warn('Supabase delete transaction error:', err);
-    }
   };
 
   // Orders creation and status management
@@ -1250,12 +1611,8 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     };
     setTransactions((prev) => [newTx, ...prev]);
 
-    try {
-      await supabase.from('orders').upsert(cleanData(newOrder));
-      await supabase.from('transactions').upsert(cleanData(newTx));
-    } catch (err) {
-      console.warn('Supabase create order error:', err);
-    }
+    await executeSupabaseOperation('orders', () => supabase.from('orders').upsert(cleanData(newOrder)), { method: 'POST', data: newOrder });
+    await executeSupabaseOperation('transactions', () => supabase.from('transactions').upsert(cleanData(newTx)), { method: 'POST', data: newTx });
 
     return newOrder;
   };
@@ -1264,11 +1621,11 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     setOrders((prev) =>
       prev.map((o) => (o.id === orderId ? { ...o, status, updatedAt: new Date().toISOString() } : o))
     );
-    try {
-      await supabase.from('orders').update(cleanData({ status, updatedAt: new Date().toISOString() })).eq('id', orderId);
-    } catch (err) {
-      console.warn('Supabase update order status error:', err);
-    }
+    await executeSupabaseOperation(
+      'orders',
+      () => supabase.from('orders').update(cleanData({ status, updatedAt: new Date().toISOString() })).eq('id', orderId),
+      { method: 'PATCH', id: orderId, data: { status, updatedAt: new Date().toISOString() } }
+    );
   };
 
   const cancelOrder = async (orderId: string) => {
@@ -1409,12 +1766,8 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     };
     setTransactions((prev) => [newTx, ...prev]);
 
-    try {
-      await supabase.from('orders').upsert(cleanData(newOrder));
-      await supabase.from('transactions').upsert(cleanData(newTx));
-    } catch (err) {
-      console.warn('Supabase create POS order error:', err);
-    }
+    await executeSupabaseOperation('orders', () => supabase.from('orders').upsert(cleanData(newOrder)), { method: 'POST', data: newOrder });
+    await executeSupabaseOperation('transactions', () => supabase.from('transactions').upsert(cleanData(newTx)), { method: 'POST', data: newTx });
 
     return newOrder;
   };
@@ -1441,12 +1794,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     };
 
     setItemStatusLogs((prev) => [newLog, ...prev]);
-
-    try {
-      await supabase.from('item_logs').upsert(cleanData(newLog));
-    } catch (err) {
-      console.warn('Supabase log item status error:', err);
-    }
+    await executeSupabaseOperation('item_logs', () => supabase.from('item_logs').upsert(cleanData(newLog)), { method: 'POST', data: newLog });
 
     // If stock adjustment is requested
     if (params.adjustStock) {
@@ -1482,11 +1830,11 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       prev.map((log) => (log.id === id ? { ...log, ...updates } : log))
     );
 
-    try {
-      await supabase.from('item_logs').update(cleanData(updates)).eq('id', id);
-    } catch (err) {
-      console.warn('Supabase update item log error:', err);
-    }
+    await executeSupabaseOperation(
+      'item_logs',
+      () => supabase.from('item_logs').update(cleanData(updates)).eq('id', id),
+      { method: 'PATCH', id, data: updates }
+    );
 
     if (
       options?.restoreStock &&
@@ -1509,11 +1857,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
   const deleteItemStatusLog = async (id: string) => {
     setItemStatusLogs((prev) => prev.filter((log) => log.id !== id));
-    try {
-      await supabase.from('item_logs').delete().eq('id', id);
-    } catch (err) {
-      console.warn('Supabase delete item log error:', err);
-    }
+    await executeSupabaseOperation('item_logs', () => supabase.from('item_logs').delete().eq('id', id), { method: 'DELETE', id });
   };
 
   return (
@@ -1528,6 +1872,12 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         loginWithGoogleFast,
         completeGoogleSignUp,
         logout,
+        rlsBlocked,
+        rlsErrorInfo,
+        dismissRlsWarning,
+        showRlsModal,
+        setShowRlsModal,
+        syncLocalToSupabase,
         bales,
         categories,
         products,
