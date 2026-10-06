@@ -81,7 +81,6 @@ const MainLayout: React.FC = () => {
           activeTab={activeTab}
           onSelectTab={setActiveTab}
           onOpenAuth={handleOpenAuth}
-          onOpenCart={() => setCartDrawerOpen(true)}
         />
 
         {/* Main View Area */}
@@ -99,7 +98,9 @@ const MainLayout: React.FC = () => {
 
           {activeTab === 'ai_chat' && currentUser.role === 'owner' && <AiChatbotView />}
 
-          {(activeTab === 'showcase' || activeTab === 'orders') && (
+          {activeTab === 'barcode' && currentUser.role === 'owner' && <BarcodeView />}
+
+          {(activeTab === 'showcase' || (activeTab === 'orders' && currentUser.role === 'owner')) && (
             <ShowcaseShopView
               isCartOpen={cartDrawerOpen}
               setIsCartOpen={setCartDrawerOpen}

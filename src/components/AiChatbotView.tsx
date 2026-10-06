@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { useStore } from '../context/StoreContext';
-import { Bot, Sparkles, Send, Trash2, ArrowRight, CornerDownLeft } from 'lucide-react';
+import { Bot, Sparkles, Send, Trash2, ArrowRight } from 'lucide-react';
 import { ConfirmDeleteModal } from './ConfirmDeleteModal';
 
 interface ChatMessage {
@@ -60,7 +60,6 @@ export const AiChatbotView: React.FC = () => {
     const totalUnits = products.reduce((sum, p) => sum + (p.availableQuantity || 0), 0);
     const lowStock = products.filter((p) => (p.availableQuantity || 0) > 0 && (p.availableQuantity || 0) <= 3);
     const outOfStock = products.filter((p) => (p.availableQuantity || 0) <= 0);
-    const healthyStock = products.filter((p) => (p.availableQuantity || 0) > 3);
     const totalExp = expenses.reduce((sum, e) => sum + (e.amount || 0), 0);
     const totalInflow = transactions.filter((t) => t.flowType === 'inflow').reduce((s, t) => s + (t.inflow || 0), 0);
     const breakEvenBales = bales.filter((b) => (b.totalSalesMade || 0) >= b.totalPurchasePrice);

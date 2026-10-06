@@ -29,6 +29,7 @@ interface AuthModalProps {
 export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, initialTab = 'signup' }) => {
   const {
     loginAs,
+    resendSignupConfirmation,
     signupAs,
     loginWithGoogleFast,
     completeGoogleSignUp,
@@ -59,6 +60,8 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, initialTa
 
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [confirmationEmail, setConfirmationEmail] = useState<string | null>(null);
+  const [confirmationNotice, setConfirmationNotice] = useState<string | null>(null);
 
   if (!isOpen) return null;
 
@@ -127,6 +130,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, initialTa
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
+    setConfirmationNotice(null);
 
     if (!email.trim() || !isValidEmail(email)) {
       setError('Please enter a valid email address (e.g. name@gmail.com).');
@@ -161,8 +165,11 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, initialTa
     try {
       if (tab === 'login') {
         await loginAs(email, password);
+        setConfirmationEmail(null);
+        setConfirmationNotice(null);
+        showFormAlert('You have been successfully signed in!');
       } else {
-        await signupAs({
+        const result = await signupAs({
           name: name.trim(),
           email: email.trim(),
           password,
@@ -170,11 +177,41 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, initialTa
           address: address.trim(),
           provider: 'email',
         });
+        if (result === 'confirmation-required') {
+          setConfirmationEmail(email.trim());
+          setConfirmationNotice(
+            `Account created. Check ${email.trim()} for the confirmation link, including your spam folder. You must confirm your email before signing in.`
+          );
+          return;
+        }
+        setConfirmationEmail(null);
+        setConfirmationNotice(null);
+        showFormAlert('Your customer account has been created!');
       }
-      showFormAlert('You have been successfully submitted the form!');
       onClose();
-    } catch (err: any) {
-      setError(err?.message || 'Authentication error. Please check your credentials.');
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : '';
+      if (tab === 'login' && /email not confirmed/i.test(message)) {
+        setConfirmationEmail(email.trim());
+        setConfirmationNotice('Confirm your email address before signing in. You can request a new confirmation link below.');
+      } else {
+        setError(message || 'Authentication error. Please check your credentials.');
+      }
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleResendConfirmation = async () => {
+    if (!confirmationEmail) return;
+    setIsLoading(true);
+    setError(null);
+    setConfirmationNotice(null);
+    try {
+      await resendSignupConfirmation(confirmationEmail);
+      setConfirmationNotice(`A new confirmation link has been sent to ${confirmationEmail}. Check your spam folder if it does not arrive.`);
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Could not resend the confirmation email. Please try again later.');
     } finally {
       setIsLoading(false);
     }
@@ -215,6 +252,25 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, initialTa
           <div className="mb-4 p-3 rounded-xl bg-red-950/70 border border-red-500/40 text-red-300 text-xs flex items-start gap-2">
             <AlertCircle className="w-4 h-4 shrink-0 text-red-400 mt-0.5" />
             <span className="leading-snug">{error}</span>
+          </div>
+        )}
+
+        {confirmationNotice && (
+          <div className="mb-4 p-3 rounded-xl bg-emerald-950/60 border border-emerald-500/30 text-emerald-200 text-xs flex items-start gap-2">
+            <CheckCircle2 className="w-4 h-4 shrink-0 text-emerald-400 mt-0.5" />
+            <div className="leading-snug">
+              <p>{confirmationNotice}</p>
+              {confirmationEmail && (
+                <button
+                  type="button"
+                  onClick={handleResendConfirmation}
+                  disabled={isLoading}
+                  className="mt-2 font-bold text-orange-300 hover:text-orange-200 underline disabled:opacity-50"
+                >
+                  {isLoading ? 'Sending...' : 'Resend confirmation email'}
+                </button>
+              )}
+            </div>
           </div>
         )}
 

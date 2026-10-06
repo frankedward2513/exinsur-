@@ -9,7 +9,6 @@ import {
   Calendar,
   Plus,
   Trash2,
-  Check,
   ShieldAlert,
 } from 'lucide-react';
 

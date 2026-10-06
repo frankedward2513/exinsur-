@@ -2,13 +2,7 @@ import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { useStore } from '../context/StoreContext';
 import {
   TrendingUp,
-  Calendar,
-  Filter,
   Sliders,
-  CheckCircle,
-  AlertTriangle,
-  RotateCcw,
-  Sparkles,
   Info,
 } from 'lucide-react';
 

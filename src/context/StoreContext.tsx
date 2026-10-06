@@ -1,4 +1,5 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
+import type { User } from '@supabase/supabase-js';
 import {
   collection,
   doc,
@@ -7,17 +8,14 @@ import {
   updateDoc,
   onSnapshot,
   query,
-} from 'firebase/firestore';
-import {
   db,
-  testConnection,
   handleFirestoreError,
   OperationType,
   cleanFirestoreData,
   signInWithPopup,
   googleProvider,
   auth,
-} from '../lib/firebase';
+} from '../lib/supabase';
 import {
   UserProfile,
   UserRole,
@@ -61,13 +59,14 @@ interface StoreContextType {
   currentUser: UserProfile;
   customers: UserProfile[];
   loginAs: (email: string, password?: string) => Promise<boolean>;
+  resendSignupConfirmation: (email: string) => Promise<void>;
   signupAs: (
     nameOrParams: string | SignUpParams,
     email?: string,
     password?: string,
     phone?: string,
     address?: string
-  ) => Promise<boolean>;
+  ) => Promise<'signed-in' | 'confirmation-required'>;
   loginWithGoogleFast: () => Promise<GoogleFastResult>;
   completeGoogleSignUp: (params: {
     uid: string;
@@ -76,7 +75,7 @@ interface StoreContextType {
     phone: string;
     address: string;
   }) => Promise<boolean>;
-  logout: () => void;
+  logout: () => Promise<void>;
   
   // Data
   bales: Bale[];
@@ -174,17 +173,20 @@ interface StoreContextType {
 
 const StoreContext = createContext<StoreContextType | undefined>(undefined);
 
-  // Helper for deterministic roles
-export function determineRole(email: string): UserRole {
+export function determineRole(email: string, assignedRole?: unknown, provider?: string): UserRole {
   const normalized = email.trim().toLowerCase();
-  if (
-    normalized === 'villotafrankedward@gmail.com' ||
-    normalized === 'frankvillota905@gmail.com' ||
-    normalized === 'frankvillota905@gmail.om'
-  ) {
+  if (provider === 'email' && normalized === 'exinadmin@gmail.com' && assignedRole === 'admin') {
     return 'owner';
   }
+  if (provider === 'email' && normalized === 'exinstaff@gmail.com' && assignedRole === 'staff') {
+    return 'staff';
+  }
   return 'customer';
+}
+
+function isPrivilegedEmail(email: string): boolean {
+  const normalized = email.trim().toLowerCase();
+  return normalized === 'exinadmin@gmail.com' || normalized === 'exinstaff@gmail.com';
 }
 
 export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
@@ -219,69 +221,60 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     isGuest: true,
   };
 
-  const [currentUser, setCurrentUser] = useState<UserProfile>(() => {
-    const saved = localStorage.getItem('exins_user');
-    if (saved) {
-      try {
-        const parsed = JSON.parse(saved);
-        if (parsed && parsed.email && parsed.role && parsed.role !== 'guest') {
-          // Frank Villota is the Owner
-          if (
-            parsed.email.toLowerCase() === 'frankvillota905@gmail.com' ||
-            parsed.email.toLowerCase() === 'frankvillota905@gmail.om' ||
-            parsed.email.toLowerCase() === 'villotafrankedward@gmail.com'
-          ) {
-            parsed.role = 'owner';
-            parsed.displayName = parsed.displayName || 'Frank Edward Villota (Owner)';
-          }
-          return parsed;
-        }
-      } catch {
-        // ignore
-      }
+  const [currentUser, setCurrentUser] = useState<UserProfile>(GUEST_USER);
+
+  const setAuthenticatedUser = (user: User) => {
+    const email = (user.email || '').trim().toLowerCase();
+    if (!email) {
+      setCurrentUser(GUEST_USER);
+      localStorage.removeItem('exins_user');
+      return;
     }
-    return GUEST_USER;
-  });
+
+    const metadata = user.user_metadata || {};
+    const profile: UserProfile = {
+      uid: user.id,
+      email,
+      displayName: metadata.full_name || metadata.name || email.split('@')[0],
+      role: determineRole(email, user.app_metadata?.exins_role, user.app_metadata?.provider),
+      phone: metadata.phone || '',
+      address: metadata.address || '',
+      provider: user.app_metadata?.provider === 'google' ? 'google' : 'email',
+      isGuest: false,
+    };
+    setCurrentUser(profile);
+    localStorage.setItem('exins_user', JSON.stringify(profile));
+  };
+
+  useEffect(() => {
+    const { data: authListener } = auth.onAuthStateChange((_event, session) => {
+      if (session?.user) {
+        setAuthenticatedUser(session.user);
+      } else {
+        setCurrentUser(GUEST_USER);
+        localStorage.removeItem('exins_user');
+      }
+    });
+    return () => authListener.subscription.unsubscribe();
+  }, []);
 
   const loginAs = async (email: string, password?: string): Promise<boolean> => {
     const normalized = email.trim().toLowerCase();
-    const pwd = (password || '').trim();
+    if (!password) throw new Error('Please enter your password.');
 
-    // 1. Strict Owner Authentication (Frank Villota)
-    if (
-      normalized === 'villotafrankedward@gmail.com' ||
-      normalized === 'frankvillota905@gmail.com' ||
-      normalized === 'frankvillota905@gmail.om'
-    ) {
-      if (pwd !== '12345678') {
-        throw new Error('Incorrect password for Owner account.');
-      }
-      const ownerUser: UserProfile = {
-        uid: 'owner-frank',
-        email: normalized,
-        displayName: 'Frank Edward Villota (Owner)',
-        role: 'owner',
-        isGuest: false,
-      };
-      setCurrentUser(ownerUser);
-      localStorage.setItem('exins_user', JSON.stringify(ownerUser));
-      return true;
-    }
-
-    // 3. All other sign-ins automatically become Customer
-    const existing = customers.find((c) => c.email.toLowerCase() === normalized);
-    const customerUser: UserProfile = existing
-      ? { ...existing, isGuest: false }
-      : {
-          uid: `cust_${Date.now()}`,
-          email: normalized,
-          displayName: normalized.includes('@') ? normalized.split('@')[0] : 'Customer',
-          role: 'customer',
-          isGuest: false,
-        };
-    setCurrentUser(customerUser);
-    localStorage.setItem('exins_user', JSON.stringify(customerUser));
+    const { data, error } = await auth.signInWithPassword({ email: normalized, password });
+    if (error) throw error;
+    if (!data.user) throw new Error('Sign-in did not return a user account.');
+    setAuthenticatedUser(data.user);
     return true;
+  };
+
+  const resendSignupConfirmation = async (email: string): Promise<void> => {
+    const normalized = email.trim().toLowerCase();
+    if (!normalized) throw new Error('Please enter your email address.');
+
+    const { error } = await auth.resend({ type: 'signup', email: normalized });
+    if (error) throw error;
   };
 
   const signupAs = async (
@@ -290,17 +283,19 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     _passwordArg?: string,
     phoneArg?: string,
     addressArg?: string
-  ): Promise<boolean> => {
+  ): Promise<'signed-in' | 'confirmation-required'> => {
     let name = '';
     let email = '';
     let phone = '';
     let address = '';
     let provider: 'email' | 'google' = 'email';
     let uid = '';
+    let password = '';
 
     if (typeof nameOrParams === 'object') {
       name = nameOrParams.name;
       email = nameOrParams.email;
+      password = nameOrParams.password || '';
       phone = nameOrParams.phone || '';
       address = nameOrParams.address || '';
       provider = nameOrParams.provider || 'email';
@@ -308,26 +303,56 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     } else {
       name = nameOrParams;
       email = emailArg || '';
+      password = _passwordArg || '';
       phone = phoneArg || '';
       address = addressArg || '';
     }
 
     const normalized = email.trim().toLowerCase();
 
-    // Prevent customers from attempting to sign up as owner or staff
-    if (
-      normalized === 'villotafrankedward@gmail.com' ||
-      normalized === 'frankvillota905@gmail.com' ||
-      normalized === 'frankvillota905@gmail.om'
-    ) {
-      throw new Error(
-        'This administrative account already exists. Please use Sign In with your authorized password.'
-      );
+    if (isPrivilegedEmail(normalized)) {
+      throw new Error('This email is reserved for an admin or staff account. Please sign in instead.');
     }
 
-    const customerUid = uid || `cust_${Date.now()}`;
+    let authUser;
+    let requiresEmailConfirmation = false;
+    if (provider === 'email') {
+      if (!password) throw new Error('Please enter a password.');
+      const { data, error } = await auth.signUp({
+        email: normalized,
+        password,
+        options: {
+          data: {
+            full_name: name.trim(),
+            phone: phone.trim(),
+            address: address.trim(),
+          },
+        },
+      });
+      if (error) throw error;
+      if (!data.user) throw new Error('Sign-up did not return a user account.');
+      authUser = data.user;
+      requiresEmailConfirmation = !data.session;
+    } else {
+      const { data, error } = await auth.getUser();
+      if (error) throw error;
+      if (!data.user || data.user.id !== uid || data.user.email?.toLowerCase() !== normalized) {
+        throw new Error('Google sign-in session is no longer valid. Please try again.');
+      }
+      const { data: updatedUser, error: updateError } = await auth.updateUser({
+        data: {
+          full_name: name.trim(),
+          phone: phone.trim(),
+          address: address.trim(),
+        },
+      });
+      if (updateError) throw updateError;
+      if (!updatedUser.user) throw new Error('Could not save your Google profile details.');
+      authUser = updatedUser.user;
+    }
+
     const customerUser: UserProfile = {
-      uid: customerUid,
+      uid: authUser.id,
       email: normalized,
       displayName: name.trim() || (normalized.includes('@') ? normalized.split('@')[0] : 'Customer'),
       phone: phone.trim(),
@@ -338,19 +363,20 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       createdAt: new Date().toISOString(),
     };
 
-    setCurrentUser(customerUser);
-    localStorage.setItem('exins_user', JSON.stringify(customerUser));
-    setCustomers((prev) => [customerUser, ...prev.filter((c) => c.uid !== customerUid)]);
+    if (!requiresEmailConfirmation) {
+      setCurrentUser(customerUser);
+      localStorage.setItem('exins_user', JSON.stringify(customerUser));
+      setCustomers((prev) => [customerUser, ...prev.filter((c) => c.uid !== customerUser.uid)]);
 
-    // Save to Firestore customers and users collection persistently
-    try {
-      await setDoc(doc(db, 'customers', customerUid), cleanFirestoreData(customerUser));
-      await setDoc(doc(db, 'users', customerUid), cleanFirestoreData(customerUser));
-    } catch (err) {
-      handleFirestoreError(err, OperationType.CREATE, `customers/${customerUid}`);
+      try {
+        await setDoc(doc(db, 'customers', customerUser.uid), { ...cleanFirestoreData(customerUser), id: customerUser.uid });
+        await setDoc(doc(db, 'users', customerUser.uid), { ...cleanFirestoreData(customerUser), id: customerUser.uid });
+      } catch (err) {
+        handleFirestoreError(err, OperationType.CREATE, `customers/${customerUser.uid}`);
+      }
     }
 
-    return true;
+    return requiresEmailConfirmation ? 'confirmation-required' : 'signed-in';
   };
 
   const loginWithGoogleFast = async (): Promise<GoogleFastResult> => {
@@ -361,23 +387,9 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       const displayName = gUser.displayName || 'Customer';
       const uid = gUser.uid;
 
-      // Check if this email is owner (Frank Villota)
-      if (
-        email === 'villotafrankedward@gmail.com' ||
-        email === 'frankvillota905@gmail.com' ||
-        email === 'frankvillota905@gmail.om'
-      ) {
-        const ownerUser: UserProfile = {
-          uid: 'owner-frank',
-          email,
-          displayName: displayName || 'Frank Edward Villota (Owner)',
-          role: 'owner',
-          isGuest: false,
-          provider: 'google',
-        };
-        setCurrentUser(ownerUser);
-        localStorage.setItem('exins_user', JSON.stringify(ownerUser));
-        return { needsDetails: false, userProfile: ownerUser };
+      if (isPrivilegedEmail(email)) {
+        await auth.signOut();
+        throw new Error('Admin and staff accounts must sign in with their email and password.');
       }
 
       // Check if existing customer profile already has phone and address
@@ -385,6 +397,10 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       if (existing && existing.phone && existing.address) {
         const fullCustomer: UserProfile = {
           ...existing,
+          uid,
+          email,
+          role: 'customer',
+          provider: 'google',
           isGuest: false,
         };
         setCurrentUser(fullCustomer);
@@ -414,7 +430,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     phone: string;
     address: string;
   }): Promise<boolean> => {
-    return signupAs({
+    const result = await signupAs({
       uid: params.uid,
       name: params.displayName,
       email: params.email,
@@ -422,9 +438,12 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       address: params.address,
       provider: 'google',
     });
+    return result === 'signed-in';
   };
 
-  const logout = () => {
+  const logout = async () => {
+    const { error } = await auth.signOut();
+    if (error) throw error;
     setCurrentUser(GUEST_USER);
     localStorage.removeItem('exins_user');
   };
@@ -539,17 +558,14 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
   // Firestore real-time listeners on startup
   useEffect(() => {
-    testConnection();
 
     // Listeners with graceful fallback
     const unsubBales = onSnapshot(
       query(collection(db, 'bales')),
       (snapshot) => {
-        if (!snapshot.empty) {
-          const loaded: Bale[] = [];
-          snapshot.forEach((d) => loaded.push({ ...(d.data() as Bale), id: d.id }));
-          setBales(loaded);
-        }
+        const loaded: Bale[] = [];
+        snapshot.forEach((d) => loaded.push({ ...(d.data() as Bale), id: d.id }));
+        setBales(loaded);
       },
       (error) => handleFirestoreError(error, OperationType.LIST, 'bales')
     );
@@ -569,9 +585,11 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
               const localCats: Category[] = JSON.parse(localSaved);
               if (localCats.length > 0) {
                 setCategories(localCats);
-                localCats.forEach((c) => {
-                  setDoc(doc(db, 'categories', c.id), cleanFirestoreData(c)).catch(console.warn);
-                });
+                if (currentUser.role === 'owner') {
+                  localCats.forEach((c) => {
+                    setDoc(doc(db, 'categories', c.id), cleanFirestoreData(c)).catch(console.warn);
+                  });
+                }
                 return;
               }
             } catch {
@@ -599,9 +617,11 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
               const localProds: Product[] = JSON.parse(localSaved);
               if (localProds.length > 0) {
                 setProducts(localProds);
-                localProds.forEach((p) => {
-                  setDoc(doc(db, 'products', p.id), cleanFirestoreData(p)).catch(console.warn);
-                });
+                if (currentUser.role === 'owner') {
+                  localProds.forEach((p) => {
+                    setDoc(doc(db, 'products', p.id), cleanFirestoreData(p)).catch(console.warn);
+                  });
+                }
                 return;
               }
             } catch {
@@ -617,11 +637,9 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     const unsubSuppliers = onSnapshot(
       query(collection(db, 'suppliers')),
       (snapshot) => {
-        if (!snapshot.empty) {
-          const loaded: Supplier[] = [];
-          snapshot.forEach((d) => loaded.push({ ...(d.data() as Supplier), id: d.id }));
-          setSuppliers(loaded);
-        }
+        const loaded: Supplier[] = [];
+        snapshot.forEach((d) => loaded.push({ ...(d.data() as Supplier), id: d.id }));
+        setSuppliers(loaded);
       },
       (error) => handleFirestoreError(error, OperationType.LIST, 'suppliers')
     );
@@ -629,11 +647,9 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     const unsubExpenseAcc = onSnapshot(
       query(collection(db, 'expense_accounts')),
       (snapshot) => {
-        if (!snapshot.empty) {
-          const loaded: ExpenseAccount[] = [];
-          snapshot.forEach((d) => loaded.push({ ...(d.data() as ExpenseAccount), id: d.id }));
-          setExpenseAccounts(loaded);
-        }
+        const loaded: ExpenseAccount[] = [];
+        snapshot.forEach((d) => loaded.push({ ...(d.data() as ExpenseAccount), id: d.id }));
+        setExpenseAccounts(loaded);
       },
       (error) => handleFirestoreError(error, OperationType.LIST, 'expense_accounts')
     );
@@ -654,6 +670,11 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       (snapshot) => {
         const loaded: Order[] = [];
         snapshot.forEach((d) => loaded.push({ ...(d.data() as Order), id: d.id }));
+
+        if (currentUser.role !== 'owner') {
+          setOrders(loaded);
+          return;
+        }
 
         setOrders((prev) => {
           const orderMap = new Map<string, Order>();
@@ -711,7 +732,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         snapshot.forEach((d) => loaded.push({ ...(d.data() as UserProfile), uid: d.id }));
         if (loaded.length > 0) {
           setCustomers(loaded);
-        } else {
+        } else if (currentUser.role === 'owner') {
           // If Firestore is empty, check if we have local customers to persist into Firestore
           const localSaved = localStorage.getItem('exins_customers');
           if (localSaved) {
@@ -728,6 +749,8 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
               // ignore
             }
           }
+        } else {
+          setCustomers([]);
         }
       },
       (error) => handleFirestoreError(error, OperationType.LIST, 'customers')
@@ -738,9 +761,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       (snapshot) => {
         const loaded: ItemStatusLog[] = [];
         snapshot.forEach((d) => loaded.push({ ...(d.data() as ItemStatusLog), id: d.id }));
-        if (loaded.length > 0) {
-          setItemStatusLogs(loaded);
-        }
+        setItemStatusLogs(loaded);
       },
       (error) => handleFirestoreError(error, OperationType.LIST, 'item_logs')
     );
@@ -757,7 +778,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       unsubCustomers();
       unsubItemLogs();
     };
-  }, []);
+  }, [currentUser.uid, currentUser.role]);
 
   // Update dynamic aggregates (category total in stock, expense account total spent, supplier bale count)
   useEffect(() => {
@@ -1441,48 +1462,48 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       }
       return [custProfile, ...prev];
     });
-    setDoc(doc(db, 'customers', custProfile.uid), cleanFirestoreData(custProfile)).catch(console.warn);
+    setDoc(doc(db, 'customers', custProfile.uid), { ...cleanFirestoreData(custProfile), id: custProfile.uid }).catch(
+      console.warn
+    );
 
-    // Deduct inventory quantities and credit bale sales
-    orderData.items.forEach((item) => {
-      // Deduct product stock
-      setProducts((prev) =>
-        prev.map((p) => {
-          if (p.id === item.productId) {
-            const newQty = Math.max(0, p.availableQuantity - item.quantity);
-            // also trigger update in firestore
-            updateProduct(p.id, { availableQuantity: newQty });
-            return { ...p, availableQuantity: newQty };
-          }
-          return p;
-        })
-      );
-
-      // Increment bale sales made if baleCode is associated
-      if (item.baleCode) {
-        setBales((prev) =>
-          prev.map((b) => {
-            if (b.baleCode === item.baleCode) {
-              const itemTotal = item.price * item.quantity;
-              const newSales = (b.totalSalesMade || 0) + itemTotal;
-              updateBale(b.id, { totalSalesMade: newSales });
-              return { ...b, totalSalesMade: newSales };
+    if (currentUser.role !== 'customer') {
+      // Deduct inventory quantities and credit bale sales for store-managed orders.
+      orderData.items.forEach((item) => {
+        setProducts((prev) =>
+          prev.map((p) => {
+            if (p.id === item.productId) {
+              const newQty = Math.max(0, p.availableQuantity - item.quantity);
+              updateProduct(p.id, { availableQuantity: newQty });
+              return { ...p, availableQuantity: newQty };
             }
-            return b;
+            return p;
           })
         );
-      }
 
-      // Log sold status
-      logItemStatus({
-        productId: item.productId,
-        productName: item.name,
-        type: 'sold',
-        quantity: item.quantity,
-        notes: `Order ${orderNumber}`,
-        adjustStock: false,
+        if (item.baleCode) {
+          setBales((prev) =>
+            prev.map((b) => {
+              if (b.baleCode === item.baleCode) {
+                const itemTotal = item.price * item.quantity;
+                const newSales = (b.totalSalesMade || 0) + itemTotal;
+                updateBale(b.id, { totalSalesMade: newSales });
+                return { ...b, totalSalesMade: newSales };
+              }
+              return b;
+            })
+          );
+        }
+
+        logItemStatus({
+          productId: item.productId,
+          productName: item.name,
+          type: 'sold',
+          quantity: item.quantity,
+          notes: `Order ${orderNumber}`,
+          adjustStock: false,
+        });
       });
-    });
+    }
 
     // Record sales inflow transaction in Finance
     const txId = `tx_${Date.now()}`;
@@ -1504,13 +1525,28 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       orderId: id,
       createdAt: new Date().toISOString(),
     };
-    setTransactions((prev) => [newTx, ...prev]);
+    if (currentUser.role !== 'customer') {
+      setTransactions((prev) => [newTx, ...prev]);
+    }
 
     try {
       await setDoc(doc(db, 'orders', id), cleanFirestoreData(newOrder));
-      await setDoc(doc(db, 'transactions', txId), cleanFirestoreData(newTx));
     } catch (err) {
       handleFirestoreError(err, OperationType.CREATE, `orders/${id}`);
+      setOrders((prev) => prev.filter((order) => order.id !== id));
+      try {
+        const placed: string[] = JSON.parse(localStorage.getItem('exins_placed_orders') || '[]');
+        localStorage.setItem('exins_placed_orders', JSON.stringify(placed.filter((orderId) => orderId !== id)));
+      } catch {
+        // ignore malformed local order index
+      }
+      throw err;
+    }
+
+    try {
+      await setDoc(doc(db, 'transactions', txId), cleanFirestoreData(newTx));
+    } catch (err) {
+      handleFirestoreError(err, OperationType.CREATE, `transactions/${txId}`);
     }
 
     return newOrder;
@@ -1780,6 +1816,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         currentUser,
         customers,
         loginAs,
+        resendSignupConfirmation,
         signupAs,
         loginWithGoogleFast,
         completeGoogleSignUp,

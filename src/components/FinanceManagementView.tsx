@@ -1,17 +1,14 @@
 import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { useStore } from '../context/StoreContext';
-import { ExpenseAccount, Expense, Transaction } from '../types';
+import { ExpenseAccount } from '../types';
 import {
   DollarSign,
   Receipt,
   History,
-  Plus,
   Search,
   Download,
   Filter,
   Calendar,
-  TrendingUp,
-  TrendingDown,
   Upload,
   Edit2,
   Trash2,
@@ -21,13 +18,9 @@ import {
   ShoppingBag,
   Layers,
   RotateCcw,
-  Sparkles,
-  ArrowRight,
   X,
-  Boxes,
   Check,
   ArrowUpDown,
-  Tag,
   ChevronDown,
   CreditCard,
   ArrowUpRight,
@@ -52,7 +45,6 @@ export const FinanceManagementView: React.FC = () => {
     updateExpenseAccount,
     deleteExpenseAccount,
     addExpense,
-    deleteExpense,
     deleteTransaction,
   } = useStore();
 

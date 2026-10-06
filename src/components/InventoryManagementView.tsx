@@ -12,7 +12,6 @@ import {
   Upload,
   RefreshCw,
   Sparkles,
-  RotateCcw,
   HelpCircle,
 } from 'lucide-react';
 import { LogItemStatusModal } from './LogItemStatusModal';

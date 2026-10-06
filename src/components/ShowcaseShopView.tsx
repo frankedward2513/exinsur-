@@ -1,14 +1,8 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { useStore } from '../context/StoreContext';
-import { Product, Order } from '../types';
+import { Order } from '../types';
 import { ReceiptModal } from './ReceiptModal';
 import { ConfirmDeleteModal } from './ConfirmDeleteModal';
-import { Pagination } from './Pagination';
-import {
-  formatPhoneNumber,
-  isValidPhoneNumber,
-  isValidEmail,
-} from '../utils/validation';
 import {
   Search,
   ShoppingBag,
@@ -30,8 +24,6 @@ import {
   CheckCircle2,
   AlertCircle,
   User,
-  Award,
-  X,
   Trophy,
   Calendar,
 } from 'lucide-react';
@@ -109,6 +101,7 @@ export const ShowcaseShopView: React.FC<ShowcaseShopViewProps> = ({
   const [courier, setCourier] = useState<'lbc' | 'lalamove' | 'jnt'>('jnt');
   const [receiptPhoto, setReceiptPhoto] = useState<string>('');
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [checkoutError, setCheckoutError] = useState<string | null>(null);
 
   // Sync customer details whenever currentUser updates
   useEffect(() => {
@@ -171,7 +164,7 @@ export const ShowcaseShopView: React.FC<ShowcaseShopViewProps> = ({
   );
   const allCartSelected = cart.length > 0 && cart.every((item) => item.selected);
 
-  const isStoreAdmin = currentUser.role === 'owner' || currentUser.role === 'staff';
+  const isStoreAdmin = currentUser.role === 'owner';
   const [orderStatusFilter, setOrderStatusFilter] = useState<string>('all');
 
   // Customer orders strictly isolated: only who ordered it will see their own orders
@@ -385,6 +378,7 @@ export const ShowcaseShopView: React.FC<ShowcaseShopViewProps> = ({
   const handleConfirmOrder = async (e: React.FormEvent) => {
     e.preventDefault();
     if (selectedCartItems.length === 0) return;
+    setCheckoutError(null);
     setIsSubmitting(true);
 
     const downPaymentAmount = 100;
@@ -426,6 +420,7 @@ export const ShowcaseShopView: React.FC<ShowcaseShopViewProps> = ({
       setReceiptOrder(created);
     } catch (err) {
       console.error(err);
+      setCheckoutError(err instanceof Error ? err.message : 'Could not place your order. Please try again.');
     } finally {
       setIsSubmitting(false);
     }
@@ -522,49 +517,6 @@ export const ShowcaseShopView: React.FC<ShowcaseShopViewProps> = ({
                   <span>Top 10 Customers</span>
                 </button>
               </>
-            ) : isGuest ? (
-              <>
-                <button
-                  onClick={() => setActiveMode('browse')}
-                  className={`px-5 py-3 rounded-2xl font-bold text-sm shadow-md transition flex items-center gap-2 cursor-pointer ${
-                    activeMode === 'browse'
-                      ? 'bg-gradient-to-r from-orange-600 to-amber-700 text-white shadow-orange-600/30'
-                      : 'bg-stone-900/80 text-stone-300 hover:text-white border border-orange-500/20'
-                  }`}
-                >
-                  <ShoppingBag className="w-4 h-4" />
-                  <span>Browse Clothing</span>
-                </button>
-                <button
-                  onClick={() => setActiveMode('orders')}
-                  className={`px-5 py-3 rounded-2xl font-bold text-sm shadow-md transition flex items-center gap-2 cursor-pointer ${
-                    activeMode === 'orders'
-                      ? 'bg-gradient-to-r from-orange-600 to-amber-700 text-white shadow-orange-600/30'
-                      : 'bg-stone-900/80 text-stone-300 hover:text-white border border-orange-500/20'
-                  }`}
-                >
-                  <Clock className="w-4 h-4" />
-                  <span>My Orders</span>
-                </button>
-                <button
-                  onClick={() => setActiveMode('top_customers')}
-                  className={`px-5 py-3 rounded-2xl font-bold text-sm shadow-md transition flex items-center gap-2 cursor-pointer ${
-                    activeMode === 'top_customers'
-                      ? 'bg-gradient-to-r from-orange-600 to-amber-700 text-white shadow-orange-600/30'
-                      : 'bg-stone-900/80 text-stone-300 hover:text-white border border-orange-500/20'
-                  }`}
-                >
-                  <Trophy className="w-4 h-4 text-amber-400" />
-                  <span>Top 10 Customers</span>
-                </button>
-                <button
-                  onClick={() => onOpenAuth('signup')}
-                  className="px-5 py-3 rounded-2xl font-bold text-sm shadow-md transition flex items-center gap-2 cursor-pointer bg-gradient-to-r from-orange-600 to-amber-700 hover:from-orange-500 hover:to-amber-600 text-white shadow-orange-600/30"
-                >
-                  <User className="w-4 h-4" />
-                  <span>Sign In</span>
-                </button>
-              </>
             ) : (
               <>
                 <button
@@ -578,28 +530,15 @@ export const ShowcaseShopView: React.FC<ShowcaseShopViewProps> = ({
                   <ShoppingBag className="w-4 h-4" />
                   <span>Browse Clothing</span>
                 </button>
-                <button
-                  onClick={() => setActiveMode('orders')}
-                  className={`px-5 py-3 rounded-2xl font-bold text-sm shadow-md transition flex items-center gap-2 cursor-pointer ${
-                    activeMode === 'orders'
-                      ? 'bg-gradient-to-r from-orange-600 to-amber-700 text-white shadow-orange-600/30'
-                      : 'bg-stone-900/80 text-stone-300 hover:text-white border border-orange-500/20'
-                  }`}
-                >
-                  <Clock className="w-4 h-4" />
-                  <span>My Orders ({customerOrders.length})</span>
-                </button>
-                <button
-                  onClick={() => setActiveMode('top_customers')}
-                  className={`px-5 py-3 rounded-2xl font-bold text-sm shadow-md transition flex items-center gap-2 cursor-pointer ${
-                    activeMode === 'top_customers'
-                      ? 'bg-gradient-to-r from-orange-600 to-amber-700 text-white shadow-orange-600/30'
-                      : 'bg-stone-900/80 text-stone-300 hover:text-white border border-orange-500/20'
-                  }`}
-                >
-                  <Trophy className="w-4 h-4 text-amber-400" />
-                  <span>Top 10 Customers</span>
-                </button>
+                {isGuest && (
+                  <button
+                    onClick={() => onOpenAuth('signup')}
+                    className="px-5 py-3 rounded-2xl font-bold text-sm shadow-md transition flex items-center gap-2 cursor-pointer bg-gradient-to-r from-orange-600 to-amber-700 hover:from-orange-500 hover:to-amber-600 text-white shadow-orange-600/30"
+                  >
+                    <User className="w-4 h-4" />
+                    <span>Sign In</span>
+                  </button>
+                )}
               </>
             )}
 
@@ -1416,6 +1355,13 @@ export const ShowcaseShopView: React.FC<ShowcaseShopViewProps> = ({
             </div>
 
             <form onSubmit={handleConfirmOrder} className="space-y-4">
+              {checkoutError && (
+                <div role="alert" className="flex items-start gap-2 rounded-xl border border-red-500/40 bg-red-950/50 p-3 text-xs text-red-200">
+                  <AlertCircle className="h-4 w-4 shrink-0 text-red-400" />
+                  <span>{checkoutError}</span>
+                </div>
+              )}
+
               {/* Customer Information */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
                 <div>

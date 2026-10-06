@@ -38,18 +38,26 @@ interface NavbarProps {
   activeTab: ActiveTab;
   onSelectTab: (tab: ActiveTab) => void;
   onOpenAuth: (mode?: 'login' | 'signup') => void;
-  onOpenCart: () => void;
 }
 
 export const Navbar: React.FC<NavbarProps> = ({
   activeTab,
   onSelectTab,
   onOpenAuth,
-  onOpenCart,
 }) => {
-  const { isDarkMode, toggleDarkMode, currentUser, logout, cart } = useStore();
+  const { isDarkMode, toggleDarkMode, currentUser, logout, showFormAlert } = useStore();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [mobileAuthChoiceOpen, setMobileAuthChoiceOpen] = useState(false);
+
+  const handleLogout = async () => {
+    try {
+      await logout();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown sign-out error.';
+      console.error('Sign out failed:', error);
+      showFormAlert(`Sign out failed: ${message}`);
+    }
+  };
 
   // Define navigation items without numbers and with Hi Im your AI Exins
   const getNavItems = () => {
@@ -61,6 +69,8 @@ export const Navbar: React.FC<NavbarProps> = ({
         { id: 'forecasting' as ActiveTab, label: 'Sales Forecast', icon: TrendingUp },
         { id: 'ai_chat' as ActiveTab, label: 'Hi Im your AI Exins', icon: Sparkles },
         { id: 'showcase' as ActiveTab, label: 'Showcase Shop', icon: ShoppingBag },
+        { id: 'orders' as ActiveTab, label: 'Online Orders', icon: Clock },
+        { id: 'barcode' as ActiveTab, label: 'Barcode Management', icon: Barcode },
         { id: 'pos' as ActiveTab, label: 'POS', icon: Store },
       ];
     } else if (currentUser.role === 'staff') {
@@ -70,17 +80,11 @@ export const Navbar: React.FC<NavbarProps> = ({
         { id: 'showcase' as ActiveTab, label: 'Showcase Shop', icon: ShoppingBag },
       ];
     } else {
-      // Customer has Showcase Shop and My Orders
-      return [
-        { id: 'showcase' as ActiveTab, label: 'Showcase Shop', icon: ShoppingBag },
-        { id: 'orders' as ActiveTab, label: 'My Orders', icon: Clock },
-      ];
+      return [{ id: 'showcase' as ActiveTab, label: 'Showcase Shop', icon: ShoppingBag }];
     }
   };
 
   const navItems = getNavItems();
-  const cartItemCount = cart.reduce((sum, item) => sum + item.quantity, 0);
-
   return (
     <nav className="sticky top-0 z-40 w-full backdrop-blur-xl bg-stone-950/75 border-b border-orange-500/20 transition-all duration-300">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
@@ -248,23 +252,8 @@ export const Navbar: React.FC<NavbarProps> = ({
                 </>
               ) : (
                 <>
-                  {currentUser.role === 'customer' && (
-                    <button
-                      onClick={() => onSelectTab('orders')}
-                      className={`flex items-center gap-1.5 p-1.5 sm:px-3 sm:py-2 rounded-xl transition cursor-pointer text-xs font-semibold ${
-                        activeTab === 'orders'
-                          ? 'bg-gradient-to-r from-orange-600 to-amber-700 text-white shadow-md border border-orange-400/40'
-                          : 'bg-stone-900/80 border border-orange-500/20 hover:border-orange-500/50 text-stone-200 hover:text-white'
-                      }`}
-                      title="View My Orders"
-                    >
-                      <Clock className="w-3.5 h-3.5 text-orange-400" />
-                      <span className="hidden sm:inline">My Orders</span>
-                    </button>
-                  )}
-
                   <button
-                    onClick={() => (currentUser.role === 'customer' ? onSelectTab('orders') : onOpenAuth('login'))}
+                    onClick={() => (currentUser.role === 'customer' ? onSelectTab('showcase') : onOpenAuth('login'))}
                     className="flex items-center gap-1.5 p-1.5 sm:px-3 sm:py-2 rounded-xl bg-stone-900/80 border border-orange-500/20 hover:border-orange-500/50 transition cursor-pointer"
                   >
                     <div className="p-1 rounded-lg bg-orange-500/20 text-orange-400">
@@ -281,13 +270,13 @@ export const Navbar: React.FC<NavbarProps> = ({
                         {currentUser.displayName}
                       </p>
                       <p className="text-[10px] text-orange-400 uppercase font-mono font-medium">
-                        {currentUser.role}
+                        {currentUser.role === 'owner' ? 'admin' : currentUser.role}
                       </p>
                     </div>
                   </button>
 
                   <button
-                    onClick={logout}
+                    onClick={() => void handleLogout()}
                     title="Sign Out"
                     className="hidden sm:flex p-2.5 rounded-xl bg-stone-900/80 border border-orange-500/20 hover:border-red-500/40 text-stone-400 hover:text-red-400 transition cursor-pointer"
                   >
@@ -344,7 +333,7 @@ export const Navbar: React.FC<NavbarProps> = ({
                   <div>
                     <p className="text-xs font-bold text-white">Welcome to JKsur+ Novaliches QC</p>
                     <p className="text-[11px] text-stone-400">
-                      Sign in or create an account to place orders & track clothing
+                      Sign in or create an account to shop the online showcase
                     </p>
                   </div>
                   <div className="grid grid-cols-2 gap-2">
@@ -374,22 +363,10 @@ export const Navbar: React.FC<NavbarProps> = ({
                     <p className="text-[10px] text-stone-400">Logged in as</p>
                     <p className="text-xs font-semibold text-white truncate">{currentUser.displayName}</p>
                     <span className="text-[9px] uppercase font-mono px-2 py-0.5 rounded bg-orange-500/20 text-orange-400 inline-block mt-0.5">
-                      {currentUser.role}
+                      {currentUser.role === 'owner' ? 'admin' : currentUser.role}
                     </span>
                   </div>
                   <div className="flex items-center gap-1.5 shrink-0">
-                    {currentUser.role === 'customer' && (
-                      <button
-                        onClick={() => {
-                          onSelectTab('orders');
-                          setMobileMenuOpen(false);
-                        }}
-                        className="text-xs font-semibold px-2.5 py-1 rounded-lg bg-orange-600 hover:bg-orange-500 text-white transition flex items-center gap-1 cursor-pointer"
-                      >
-                        <Clock className="w-3 h-3" />
-                        <span>My Orders</span>
-                      </button>
-                    )}
                     <button
                       onClick={() => {
                         onOpenAuth();
@@ -401,7 +378,7 @@ export const Navbar: React.FC<NavbarProps> = ({
                     </button>
                     <button
                       onClick={() => {
-                        logout();
+                        void handleLogout();
                         setMobileMenuOpen(false);
                       }}
                       className="p-1 rounded-lg bg-red-950/60 border border-red-500/30 text-red-300 hover:text-white transition"

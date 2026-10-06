@@ -1,6 +1,5 @@
 import React, { useState, useMemo } from 'react';
 import { useStore } from '../context/StoreContext';
-import { Product } from '../types';
 import {
   Barcode as BarcodeIcon,
   Printer,
@@ -8,9 +7,7 @@ import {
   Square,
   Sparkles,
   CheckCircle,
-  RotateCcw,
   Tag,
-  Filter,
 } from 'lucide-react';
 
 export const BarcodeView: React.FC = () => {

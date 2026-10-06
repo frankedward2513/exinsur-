@@ -4,19 +4,14 @@ import { Product, Order } from '../types';
 import { ReceiptModal } from './ReceiptModal';
 import { ConfirmDeleteModal } from './ConfirmDeleteModal';
 import {
-  Search,
   Barcode,
   ShoppingBag,
   Plus,
   Minus,
   Trash2,
-  Printer,
-  DollarSign,
-  Percent,
   CheckCircle,
   AlertCircle,
   Tag,
-  Sparkles,
 } from 'lucide-react';
 
 export const PosView: React.FC = () => {

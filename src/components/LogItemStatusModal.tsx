@@ -1,6 +1,5 @@
 import React, { useState, useMemo } from 'react';
 import { useStore } from '../context/StoreContext';
-import { Product } from '../types';
 import {
   X,
   Search,
